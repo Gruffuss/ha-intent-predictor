@@ -1,0 +1,129 @@
+2025-07-13 10:36:19,192 - __main__ - INFO - Starting Simple Intent Prediction System
+2025-07-13 10:36:19,198 - __main__ - INFO - Configuration loaded from /home/intent-predictor/ha-intent-predictor/config/config.yaml
+2025-07-13 10:36:19,198 - __main__ - INFO - Starting main application loop
+2025-07-13 10:36:19,199 - __main__ - INFO - Initializing application
+2025-07-13 10:36:19,202 - ha_client - INFO - Successfully connected to Home Assistant
+2025-07-13 10:36:19,202 - __main__ - INFO - Creating output sensors in Home Assistant
+2025-07-13 10:36:19,259 - __main__ - INFO - Training new models from scratch
+2025-07-13 10:36:19,259 - __main__ - INFO - Starting initial training with historical data
+2025-07-13 10:36:19,259 - __main__ - INFO - Fetching historical sensor data
+2025-07-13 10:36:19,259 - ha_client - INFO - Fetching 180 days of historical data for 23 entities
+2025-07-13 10:36:51,309 - ha_client - INFO - Retrieved 572544 historical records (including current states)
+2025-07-13 10:36:51,367 - __main__ - INFO - Retrieved 572544 historical records
+2025-07-13 10:36:51,368 - __main__ - INFO - Fitting feature engineering pipeline
+2025-07-13 10:36:51,368 - advanced_feature_engine - INFO - Fitting advanced feature engineering pipeline with pattern analysis
+2025-07-13 10:36:51,369 - advanced_feature_engine - INFO - Memory usage at Starting fit process: Process: 373.9MB, System: 17.6% (2.1GB used)
+2025-07-13 10:36:51,707 - advanced_feature_engine - INFO - Processing 279840 sensor events for pattern analysis
+2025-07-13 10:36:51,708 - advanced_feature_engine - INFO - Memory usage at After processing sensor events: Process: 375.3MB, System: 17.6% (2.1GB used)
+2025-07-13 10:36:51,750 - advanced_feature_engine - INFO - Analyzing daily activity patterns
+2025-07-13 10:37:02,832 - advanced_feature_engine - INFO - Analyzed 180 daily patterns
+2025-07-13 10:37:02,840 - advanced_feature_engine - INFO - Memory usage at After daily pattern analysis: Process: 405.9MB, System: 17.8% (2.1GB used)
+2025-07-13 10:37:02,879 - advanced_feature_engine - INFO - Analyzing sequence patterns
+2025-07-13 10:37:02,879 - advanced_feature_engine - INFO - Limiting sequence analysis to most recent 30000 events (out of 279840)
+2025-07-13 10:37:03,643 - advanced_feature_engine - INFO - Sampling 1000 sequences from 5001 for clustering
+2025-07-13 10:37:03,655 - advanced_feature_engine - INFO - Found 16 sequence pattern clusters from 1000 sequences
+2025-07-13 10:37:03,657 - advanced_feature_engine - INFO - Memory usage at After sequence pattern analysis: Process: 406.3MB, System: 17.8% (2.1GB used)
+2025-07-13 10:37:03,695 - advanced_feature_engine - INFO - Analyzing behavioral signatures
+2025-07-13 10:37:18,306 - advanced_feature_engine - INFO - Memory usage at After behavioral analysis: Process: 374.4MB, System: 17.6% (2.1GB used)
+2025-07-13 10:37:18,306 - advanced_feature_engine - INFO - Advanced feature engineering pipeline fitted successfully
+2025-07-13 10:37:18,316 - __main__ - INFO - Extracting features for training
+2025-07-13 10:37:20,696 - __main__ - INFO - Sampling 5000 from 103448 event-driven time points
+2025-07-13 10:37:20,704 - __main__ - INFO - Using 5000 time points for training
+2025-07-13 10:37:20,704 - __main__ - INFO - Feature extraction progress: 0.0% (0/5000)
+2025-07-13 10:37:29,295 - __main__ - INFO - Feature extraction progress: 2.0% (100/5000)
+2025-07-13 10:37:36,271 - __main__ - INFO - Feature extraction progress: 4.0% (200/5000)
+2025-07-13 10:37:43,283 - __main__ - INFO - Feature extraction progress: 6.0% (300/5000)
+2025-07-13 10:37:50,106 - __main__ - INFO - Feature extraction progress: 8.0% (400/5000)
+2025-07-13 10:37:59,036 - __main__ - INFO - Feature extraction progress: 10.0% (500/5000)
+2025-07-13 10:38:06,880 - __main__ - INFO - Feature extraction progress: 12.0% (600/5000)
+2025-07-13 10:38:15,416 - __main__ - INFO - Feature extraction progress: 14.0% (700/5000)
+2025-07-13 10:38:22,115 - __main__ - INFO - Feature extraction progress: 16.0% (800/5000)
+2025-07-13 10:38:30,634 - __main__ - INFO - Feature extraction progress: 18.0% (900/5000)
+2025-07-13 10:38:38,521 - __main__ - INFO - Feature extraction progress: 20.0% (1000/5000)
+2025-07-13 10:38:47,810 - __main__ - INFO - Feature extraction progress: 22.0% (1100/5000)
+2025-07-13 10:38:58,331 - __main__ - INFO - Feature extraction progress: 24.0% (1200/5000)
+2025-07-13 10:39:06,583 - __main__ - INFO - Feature extraction progress: 26.0% (1300/5000)
+2025-07-13 10:39:15,218 - __main__ - INFO - Feature extraction progress: 28.0% (1400/5000)
+2025-07-13 10:39:25,737 - __main__ - INFO - Feature extraction progress: 30.0% (1500/5000)
+2025-07-13 10:39:34,192 - __main__ - INFO - Feature extraction progress: 32.0% (1600/5000)
+2025-07-13 10:39:42,463 - __main__ - INFO - Feature extraction progress: 34.0% (1700/5000)
+2025-07-13 10:39:51,087 - __main__ - INFO - Feature extraction progress: 36.0% (1800/5000)
+2025-07-13 10:40:01,333 - __main__ - INFO - Feature extraction progress: 38.0% (1900/5000)
+2025-07-13 10:40:09,733 - __main__ - INFO - Feature extraction progress: 40.0% (2000/5000)
+2025-07-13 10:40:18,408 - __main__ - INFO - Feature extraction progress: 42.0% (2100/5000)
+2025-07-13 10:40:28,788 - __main__ - INFO - Feature extraction progress: 44.0% (2200/5000)
+2025-07-13 10:40:40,187 - __main__ - INFO - Feature extraction progress: 46.0% (2300/5000)
+2025-07-13 10:40:48,657 - __main__ - INFO - Feature extraction progress: 48.0% (2400/5000)
+2025-07-13 10:40:59,630 - __main__ - INFO - Feature extraction progress: 50.0% (2500/5000)
+2025-07-13 10:41:09,168 - __main__ - INFO - Feature extraction progress: 52.0% (2600/5000)
+2025-07-13 10:41:17,812 - __main__ - INFO - Feature extraction progress: 54.0% (2700/5000)
+2025-07-13 10:41:28,217 - __main__ - INFO - Feature extraction progress: 56.0% (2800/5000)
+2025-07-13 10:41:37,683 - __main__ - INFO - Feature extraction progress: 58.0% (2900/5000)
+2025-07-13 10:41:46,104 - __main__ - INFO - Feature extraction progress: 60.0% (3000/5000)
+2025-07-13 10:41:56,095 - __main__ - INFO - Feature extraction progress: 62.0% (3100/5000)
+2025-07-13 10:42:04,418 - __main__ - INFO - Feature extraction progress: 64.0% (3200/5000)
+2025-07-13 10:42:16,489 - __main__ - INFO - Feature extraction progress: 66.0% (3300/5000)
+2025-07-13 10:42:26,480 - __main__ - INFO - Feature extraction progress: 68.0% (3400/5000)
+2025-07-13 10:42:34,072 - __main__ - INFO - Feature extraction progress: 70.0% (3500/5000)
+2025-07-13 10:42:46,599 - __main__ - INFO - Feature extraction progress: 72.0% (3600/5000)
+2025-07-13 10:42:56,425 - __main__ - INFO - Feature extraction progress: 74.0% (3700/5000)
+2025-07-13 10:43:05,181 - __main__ - INFO - Feature extraction progress: 76.0% (3800/5000)
+2025-07-13 10:43:14,162 - __main__ - INFO - Feature extraction progress: 78.0% (3900/5000)
+2025-07-13 10:43:22,759 - __main__ - INFO - Feature extraction progress: 80.0% (4000/5000)
+2025-07-13 10:43:32,430 - __main__ - INFO - Feature extraction progress: 82.0% (4100/5000)
+2025-07-13 10:43:43,859 - __main__ - INFO - Feature extraction progress: 84.0% (4200/5000)
+2025-07-13 10:43:51,961 - __main__ - INFO - Feature extraction progress: 86.0% (4300/5000)
+2025-07-13 10:44:01,855 - __main__ - INFO - Feature extraction progress: 88.0% (4400/5000)
+2025-07-13 10:44:11,265 - __main__ - INFO - Feature extraction progress: 90.0% (4500/5000)
+2025-07-13 10:44:19,848 - __main__ - INFO - Feature extraction progress: 92.0% (4600/5000)
+2025-07-13 10:44:29,382 - __main__ - INFO - Feature extraction progress: 94.0% (4700/5000)
+2025-07-13 10:44:37,381 - __main__ - INFO - Feature extraction progress: 96.0% (4800/5000)
+2025-07-13 10:44:46,123 - __main__ - INFO - Feature extraction progress: 98.0% (4900/5000)
+2025-07-13 10:44:54,367 - __main__ - WARNING - Inconsistent columns in feature sample, skipping
+2025-07-13 10:44:54,400 - __main__ - INFO - Combining 4998 consistent feature samples
+2025-07-13 10:44:54,400 - __main__ - INFO - Sample shapes: [(1, 98), (1, 98), (1, 98), (1, 98), (1, 98)]
+2025-07-13 10:44:58,781 - __main__ - INFO - Combined features shape: (4998, 98)
+2025-07-13 10:44:58,781 - __main__ - INFO - Extracted 4998 feature samples
+2025-07-13 10:44:58,908 - __main__ - INFO - Creating training targets
+2025-07-13 10:44:58,909 - target_generator - INFO - Analyzing actual room usage patterns from 572544 events
+2025-07-13 10:45:50,133 - target_generator - INFO - Generated regression targets for 6 models
+2025-07-13 10:45:50,133 - target_generator - INFO - office_15min: mean occupancy = 0.276, samples = 4998
+2025-07-13 10:45:50,133 - target_generator - INFO - office_2h: mean occupancy = 0.515, samples = 4998
+2025-07-13 10:45:50,133 - target_generator - INFO - bedroom_15min: mean occupancy = 0.155, samples = 4998
+2025-07-13 10:45:50,134 - target_generator - INFO - bedroom_2h: mean occupancy = 0.469, samples = 4998
+2025-07-13 10:45:50,134 - target_generator - INFO - kitchen_livingroom_15min: mean occupancy = 0.256, samples = 4998
+2025-07-13 10:45:50,134 - target_generator - INFO - kitchen_livingroom_2h: mean occupancy = 0.588, samples = 4998
+2025-07-13 10:45:50,136 - __main__ - INFO - Training ML models
+2025-07-13 10:45:50,136 - ml_models - INFO - Fitting complete ML pipeline
+2025-07-13 10:45:50,136 - ml_models - INFO - Fitting intent prediction models with validation
+2025-07-13 10:45:50,136 - ml_models - INFO - Training with 3998 samples, validating with 1000 samples
+2025-07-13 10:46:13,485 - ml_models - INFO - office_15min: R² = -0.102, MSE = 0.1848
+2025-07-13 10:46:57,703 - ml_models - INFO - office_2h: R² = -0.205, MSE = 0.2457
+2025-07-13 10:47:20,105 - ml_models - INFO - bedroom_15min: R² = -0.182, MSE = 0.0662
+2025-07-13 10:48:03,527 - ml_models - INFO - bedroom_2h: R² = -0.241, MSE = 0.1908
+2025-07-13 10:48:24,623 - ml_models - INFO - kitchen_livingroom_15min: R² = -0.087, MSE = 0.1624
+2025-07-13 10:49:09,020 - ml_models - INFO - kitchen_livingroom_2h: R² = -0.132, MSE = 0.2165
+2025-07-13 10:49:09,024 - ml_models - INFO - Average validation R² score: -0.158
+2025-07-13 10:49:09,029 - ml_models - WARNING - Low validation accuracy (R² = -0.158). Consider feature engineering.
+2025-07-13 10:49:09,029 - ml_models - INFO - Intent prediction models fitted successfully with validation
+2025-07-13 10:49:09,032 - ml_models - INFO - ML pipeline fitted successfully
+2025-07-13 10:49:09,124 - ml_models - INFO - ModelPipeline saved to /home/intent-predictor/ha-intent-predictor/models/pipeline.joblib
+2025-07-13 10:49:09,128 - advanced_feature_engine - INFO - AdvancedFeatureEngine saved to /home/intent-predictor/ha-intent-predictor/models/feature_engine.joblib
+2025-07-13 10:49:09,129 - __main__ - INFO - Models saved to disk
+2025-07-13 10:49:09,140 - __main__ - INFO - Initial training completed successfully
+2025-07-13 10:49:09,164 - __main__ - INFO - Initial training completed successfully
+2025-07-13 10:49:09,164 - __main__ - INFO - Scheduled periodic tasks
+2025-07-13 10:49:09,165 - __main__ - INFO - Application initialized successfully
+ * Serving Flask app 'main'
+ * Debug mode: off
+2025-07-13 10:49:09,173 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8000
+ * Running on http://192.168.51.166:8000
+2025-07-13 10:49:09,173 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-07-13 10:50:09,168 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 10:50:11,997 - ha_client - INFO - Retrieved 4497 historical records (including current states)
+2025-07-13 10:50:12,812 - ha_client - INFO - Updated 12/12 sensors successfully
+2025-07-13 10:51:12,817 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 10:51:15,566 - ha_client - INFO - Retrieved 4497 historical records (including current states)
+2025-07-13 10:51:16,353 - ha_client - INFO - Updated 12/12 sensors successfully

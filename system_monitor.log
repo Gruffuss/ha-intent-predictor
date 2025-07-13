@@ -1,0 +1,141 @@
+2025-07-13 12:36:06,694 - __main__ - INFO - Starting Intelligent Room Occupancy Prediction System
+2025-07-13 12:36:06,700 - __main__ - INFO - Configuration loaded from /home/intent-predictor/ha-intent-predictor/config/config.yaml
+2025-07-13 12:36:06,701 - __main__ - INFO - Starting intelligent prediction system
+2025-07-13 12:36:06,701 - __main__ - INFO - Initializing intelligent prediction system
+2025-07-13 12:36:06,704 - ha_client - INFO - Successfully connected to Home Assistant
+2025-07-13 12:36:06,704 - __main__ - INFO - Querying complete sensor inventory from Home Assistant
+2025-07-13 12:36:06,704 - __main__ - ERROR - Failed to get sensor inventory: 'HomeAssistantClient' object has no attribute 'headers'
+2025-07-13 12:36:06,704 - __main__ - INFO - Found 0 total sensors in Home Assistant
+2025-07-13 12:36:06,704 - __main__ - INFO - Creating intelligent prediction sensors
+2025-07-13 12:36:06,755 - __main__ - INFO - Starting intelligent pattern discovery and model training
+2025-07-13 12:36:06,755 - __main__ - INFO - 🧠 Starting intelligent pattern discovery and training
+2025-07-13 12:36:06,758 - __main__ - INFO - Fetching comprehensive historical data for pattern discovery
+2025-07-13 12:36:06,758 - __main__ - ERROR - Failed to get sensor inventory: 'HomeAssistantClient' object has no attribute 'headers'
+2025-07-13 12:36:06,758 - __main__ - INFO - Fetching data for 23 sensors
+2025-07-13 12:36:06,758 - ha_client - INFO - Fetching 180 days of historical data for 23 entities
+2025-07-13 12:36:35,672 - ha_client - INFO - Retrieved 572974 historical records (including current states)
+2025-07-13 12:36:35,723 - __main__ - INFO - Retrieved 572974 historical records for intelligent training
+2025-07-13 12:36:35,726 - intelligent_predictor - INFO - Training intelligent occupancy prediction system
+2025-07-13 12:36:35,726 - intelligent_predictor - INFO - Step 1: Discovering behavioral patterns
+2025-07-13 12:36:35,726 - intelligent_predictor - INFO - Discovering behavioral patterns from historical data
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:54: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['hour'] = room_data['last_changed'].dt.hour
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:55: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['day_of_week'] = room_data['last_changed'].dt.dayofweek
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:56: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['is_weekend'] = room_data['day_of_week'] >= 5
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:54: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['hour'] = room_data['last_changed'].dt.hour
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:55: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['day_of_week'] = room_data['last_changed'].dt.dayofweek
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:56: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['is_weekend'] = room_data['day_of_week'] >= 5
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:54: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['hour'] = room_data['last_changed'].dt.hour
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:55: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['day_of_week'] = room_data['last_changed'].dt.dayofweek
+/home/intent-predictor/ha-intent-predictor/src/intelligent_predictor.py:56: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  room_data['is_weekend'] = room_data['day_of_week'] >= 5
+2025-07-13 12:37:43,441 - intelligent_predictor - INFO - Step 2: Initializing intelligent feature extraction
+2025-07-13 12:37:43,441 - intelligent_predictor - INFO - Fitting intelligent feature extractor
+2025-07-13 12:37:43,441 - intelligent_predictor - INFO - Step 3: Extracting training data
+2025-07-13 12:37:43,921 - intelligent_predictor - INFO - Creating training data from 5000 time points
+2025-07-13 12:37:43,921 - intelligent_predictor - INFO - Processing training sample 0/5000
+2025-07-13 12:38:24,162 - intelligent_predictor - INFO - Processing training sample 500/5000
+2025-07-13 12:39:49,894 - intelligent_predictor - INFO - Processing training sample 1000/5000
+2025-07-13 12:41:55,433 - intelligent_predictor - INFO - Processing training sample 1500/5000
+2025-07-13 12:44:42,754 - intelligent_predictor - INFO - Processing training sample 2000/5000
+2025-07-13 12:48:16,127 - intelligent_predictor - INFO - Processing training sample 2500/5000
+2025-07-13 12:52:34,231 - intelligent_predictor - INFO - Processing training sample 3000/5000
+2025-07-13 12:57:31,714 - intelligent_predictor - INFO - Processing training sample 3500/5000
+2025-07-13 13:03:11,627 - intelligent_predictor - INFO - Processing training sample 4000/5000
+2025-07-13 13:09:39,463 - intelligent_predictor - INFO - Processing training sample 4500/5000
+2025-07-13 13:16:49,354 - intelligent_predictor - INFO - Creating targets for sample 0/5000
+2025-07-13 13:19:43,815 - intelligent_predictor - INFO - Creating targets for sample 500/5000
+2025-07-13 13:22:36,985 - intelligent_predictor - INFO - Creating targets for sample 1000/5000
+2025-07-13 13:25:30,767 - intelligent_predictor - INFO - Creating targets for sample 1500/5000
+2025-07-13 13:28:25,020 - intelligent_predictor - INFO - Creating targets for sample 2000/5000
+2025-07-13 13:31:19,460 - intelligent_predictor - INFO - Creating targets for sample 2500/5000
+2025-07-13 13:34:13,320 - intelligent_predictor - INFO - Creating targets for sample 3000/5000
+2025-07-13 13:37:06,831 - intelligent_predictor - INFO - Creating targets for sample 3500/5000
+2025-07-13 13:40:01,172 - intelligent_predictor - INFO - Creating targets for sample 4000/5000
+2025-07-13 13:42:55,904 - intelligent_predictor - INFO - Creating targets for sample 4500/5000
+2025-07-13 13:45:52,173 - intelligent_predictor - INFO - office: 15min positives = 2936.0/5000, 2h positives = 4080.0/5000
+2025-07-13 13:45:52,173 - intelligent_predictor - INFO - bedroom: 15min positives = 2063.0/5000, 2h positives = 4088.0/5000
+2025-07-13 13:45:52,173 - intelligent_predictor - INFO - kitchen_livingroom: 15min positives = 3481.0/5000, 2h positives = 4725.0/5000
+2025-07-13 13:45:52,206 - intelligent_predictor - INFO - Step 4: Training multi-horizon prediction models
+2025-07-13 13:45:52,207 - intelligent_predictor - INFO - Training multi-horizon prediction models
+2025-07-13 13:46:32,021 - intelligent_predictor - INFO - office_15min: CV R² = 0.335 ± 0.054
+2025-07-13 13:47:19,600 - intelligent_predictor - INFO - office_2h: CV R² = -0.051 ± 0.372
+2025-07-13 13:48:10,962 - intelligent_predictor - INFO - bedroom_15min: CV R² = 0.194 ± 0.031
+2025-07-13 13:49:17,773 - intelligent_predictor - INFO - bedroom_2h: CV R² = 0.004 ± 0.158
+2025-07-13 13:50:00,518 - intelligent_predictor - INFO - kitchen_livingroom_15min: CV R² = 0.340 ± 0.064
+2025-07-13 13:50:50,084 - intelligent_predictor - INFO - kitchen_livingroom_2h: CV R² = 0.036 ± 0.093
+2025-07-13 13:50:50,084 - intelligent_predictor - INFO - Overall average CV R² = 0.143
+2025-07-13 13:50:50,084 - intelligent_predictor - WARNING - ⚠️ Performance below target: 0.143
+2025-07-13 13:50:50,085 - intelligent_predictor - INFO - ✅ Intelligent training completed successfully
+2025-07-13 13:50:50,096 - __main__ - INFO - ✅ Intelligent training completed in 74.7 minutes
+2025-07-13 13:50:50,108 - __main__ - INFO - ✅ Intelligent training completed successfully
+2025-07-13 13:50:50,109 - __main__ - INFO - Scheduled intelligent prediction tasks
+2025-07-13 13:50:50,109 - __main__ - INFO - 🎉 Intelligent prediction system initialized successfully
+ * Serving Flask app 'intelligent_main'
+ * Debug mode: off
+Address already in use
+Port 8000 is in use by another program. Either identify and stop that program, or start the server with a different port.
+2025-07-13 13:52:50,111 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 13:52:52,773 - ha_client - INFO - Retrieved 4557 historical records (including current states)
+2025-07-13 13:52:53,978 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 13:54:53,981 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 13:54:56,973 - ha_client - INFO - Retrieved 4542 historical records (including current states)
+2025-07-13 13:54:58,133 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 13:56:58,135 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 13:57:00,786 - ha_client - INFO - Retrieved 4540 historical records (including current states)
+2025-07-13 13:57:01,854 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 13:59:01,855 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 13:59:04,515 - ha_client - INFO - Retrieved 4537 historical records (including current states)
+2025-07-13 13:59:05,598 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 14:01:05,598 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 14:01:08,223 - ha_client - INFO - Retrieved 4540 historical records (including current states)
+2025-07-13 14:01:09,273 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 14:03:09,274 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 14:03:11,974 - ha_client - INFO - Retrieved 4543 historical records (including current states)
+2025-07-13 14:03:13,062 - ha_client - INFO - Updated 14/14 sensors successfully
+2025-07-13 14:05:13,066 - ha_client - INFO - Fetching 1 days of historical data for 23 entities
+2025-07-13 14:05:15,742 - ha_client - INFO - Retrieved 4549 historical records (including current states)
+2025-07-13 14:05:16,847 - ha_client - INFO - Updated 14/14 sensors successfully

@@ -1,0 +1,38 @@
+2025-07-13 16:16:57,498 - __main__ - INFO - Starting PROPER Room Occupancy Prediction System (Classification-based)
+2025-07-13 16:16:57,507 - __main__ - INFO - Configuration loaded from /home/intent-predictor/ha-intent-predictor/config/config.yaml
+2025-07-13 16:16:57,508 - __main__ - INFO - Starting PROPER prediction system
+2025-07-13 16:16:57,508 - __main__ - INFO - Initializing PROPER prediction system
+2025-07-13 16:16:57,514 - ha_client - INFO - Successfully connected to Home Assistant
+2025-07-13 16:16:57,515 - __main__ - INFO - Creating proper prediction sensors
+2025-07-13 16:16:57,595 - __main__ - INFO - Starting PROPER classification-based training
+2025-07-13 16:16:57,595 - __main__ - INFO - 🧠 Starting PROPER classification training
+2025-07-13 16:16:57,595 - __main__ - INFO - Fetching comprehensive historical data
+2025-07-13 16:16:57,595 - ha_client - INFO - Fetching 180 days of historical data for 23 entities
+2025-07-13 16:17:32,046 - ha_client - INFO - Retrieved 573602 historical records (including current states)
+2025-07-13 16:17:32,101 - __main__ - INFO - Retrieved 573602 historical records for PROPER training
+2025-07-13 16:17:32,101 - proper_predictor - INFO - Training proper classification-based prediction system
+2025-07-13 16:17:32,101 - proper_predictor - INFO - Analyzing historical patterns
+2025-07-13 16:17:32,297 - proper_predictor - INFO - Analyzed patterns for 3 rooms
+2025-07-13 16:17:32,298 - proper_predictor - INFO - Creating balanced training samples
+2025-07-13 16:17:32,808 - proper_predictor - INFO - Using 3908 balanced training samples
+2025-07-13 16:17:32,808 - proper_predictor - INFO - Processing batch 1/8 (0-500)
+2025-07-13 16:17:32,808 - proper_predictor - INFO - Extracting features: 0/3908
+2025-07-13 16:17:41,991 - proper_predictor - INFO - Batch 1 complete - 500 successful extractions so far
+2025-07-13 16:17:41,992 - proper_predictor - INFO - Processing batch 2/8 (500-1000)
+2025-07-13 16:17:50,951 - proper_predictor - INFO - Batch 2 complete - 999 successful extractions so far
+2025-07-13 16:17:50,951 - proper_predictor - INFO - Processing batch 3/8 (1000-1500)
+2025-07-13 16:17:50,951 - proper_predictor - INFO - Extracting features: 1000/3908
+2025-07-13 16:18:01,426 - proper_predictor - INFO - Batch 3 complete - 1499 successful extractions so far
+2025-07-13 16:18:01,426 - proper_predictor - INFO - Processing batch 4/8 (1500-2000)
+2025-07-13 16:18:10,146 - proper_predictor - INFO - Batch 4 complete - 1990 successful extractions so far
+2025-07-13 16:18:10,146 - proper_predictor - INFO - Processing batch 5/8 (2000-2500)
+2025-07-13 16:18:10,146 - proper_predictor - INFO - Extracting features: 2000/3908
+2025-07-13 16:18:21,671 - proper_predictor - INFO - Batch 5 complete - 2489 successful extractions so far
+2025-07-13 16:18:21,671 - proper_predictor - INFO - Processing batch 6/8 (2500-3000)
+2025-07-13 16:18:32,872 - proper_predictor - INFO - Batch 6 complete - 2983 successful extractions so far
+2025-07-13 16:18:32,872 - proper_predictor - INFO - Processing batch 7/8 (3000-3500)
+2025-07-13 16:18:32,872 - proper_predictor - INFO - Extracting features: 3000/3908
+2025-07-13 16:18:41,635 - proper_predictor - INFO - Batch 7 complete - 3415 successful extractions so far
+2025-07-13 16:18:41,635 - proper_predictor - INFO - Processing batch 8/8 (3500-3908)
+2025-07-13 16:18:49,071 - proper_predictor - INFO - Batch 8 complete - 3821 successful extractions so far
+2025-07-13 16:18:49,741 - proper_predictor - INFO - Creating targets: 0/3821

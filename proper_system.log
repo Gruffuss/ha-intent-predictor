@@ -1,0 +1,43 @@
+2025-07-13 14:15:04,340 - __main__ - INFO - Starting PROPER Room Occupancy Prediction System (Classification-based)
+2025-07-13 14:15:04,346 - __main__ - INFO - Configuration loaded from /home/intent-predictor/ha-intent-predictor/config/config.yaml
+2025-07-13 14:15:04,346 - __main__ - INFO - Starting PROPER prediction system
+2025-07-13 14:15:04,347 - __main__ - INFO - Initializing PROPER prediction system
+2025-07-13 14:15:04,350 - ha_client - INFO - Successfully connected to Home Assistant
+2025-07-13 14:15:04,350 - __main__ - INFO - Creating proper prediction sensors
+2025-07-13 14:15:04,419 - __main__ - INFO - Starting PROPER classification-based training
+2025-07-13 14:15:04,419 - __main__ - INFO - 🧠 Starting PROPER classification training
+2025-07-13 14:15:04,419 - __main__ - INFO - Fetching comprehensive historical data
+2025-07-13 14:15:04,419 - ha_client - INFO - Fetching 180 days of historical data for 23 entities
+2025-07-13 14:15:32,937 - ha_client - INFO - Retrieved 573268 historical records (including current states)
+2025-07-13 14:15:32,986 - __main__ - INFO - Retrieved 573268 historical records for PROPER training
+2025-07-13 14:15:32,986 - proper_predictor - INFO - Training proper classification-based prediction system
+2025-07-13 14:15:32,986 - proper_predictor - INFO - Analyzing historical patterns
+2025-07-13 14:15:33,180 - proper_predictor - INFO - Analyzed patterns for 3 rooms
+2025-07-13 14:15:33,181 - proper_predictor - INFO - Creating balanced training samples
+2025-07-13 14:15:33,680 - proper_predictor - INFO - Using 6473 balanced training samples
+2025-07-13 14:15:33,680 - proper_predictor - INFO - Extracting features: 0/6473
+2025-07-13 14:15:48,655 - proper_predictor - INFO - Extracting features: 1000/6473
+2025-07-13 14:16:04,335 - proper_predictor - INFO - Extracting features: 2000/6473
+2025-07-13 14:16:19,748 - proper_predictor - INFO - Extracting features: 3000/6473
+2025-07-13 14:16:35,748 - proper_predictor - INFO - Extracting features: 4000/6473
+2025-07-13 14:16:51,972 - proper_predictor - INFO - Extracting features: 5000/6473
+2025-07-13 14:17:06,689 - proper_predictor - INFO - Extracting features: 6000/6473
+2025-07-13 14:17:16,541 - proper_predictor - INFO - Creating targets: 0/6473
+2025-07-13 14:23:08,561 - proper_predictor - INFO - Creating targets: 1000/6473
+2025-07-13 14:29:04,283 - proper_predictor - INFO - Creating targets: 2000/6473
+2025-07-13 14:34:47,260 - proper_predictor - INFO - Creating targets: 3000/6473
+2025-07-13 14:40:28,527 - proper_predictor - INFO - Creating targets: 4000/6473
+2025-07-13 14:46:25,806 - proper_predictor - INFO - Creating targets: 5000/6473
+2025-07-13 14:52:21,471 - proper_predictor - INFO - Creating targets: 6000/6473
+2025-07-13 14:55:10,239 - proper_predictor - INFO - office_15min: 43.0% positive examples (2781.0/6473)
+2025-07-13 14:55:10,239 - proper_predictor - INFO - office_2h: 68.1% positive examples (4405.0/6473)
+2025-07-13 14:55:10,239 - proper_predictor - INFO - bedroom_15min: 35.1% positive examples (2270.0/6473)
+2025-07-13 14:55:10,239 - proper_predictor - INFO - bedroom_2h: 76.6% positive examples (4957.0/6473)
+2025-07-13 14:55:10,239 - proper_predictor - INFO - kitchen_livingroom_15min: 46.1% positive examples (2983.0/6473)
+2025-07-13 14:55:10,239 - proper_predictor - INFO - kitchen_livingroom_2h: 86.4% positive examples (5593.0/6473)
+2025-07-13 14:55:10,265 - proper_predictor - INFO - Training classification models
+2025-07-13 14:55:10,266 - proper_predictor - INFO - Training classification models with proper evaluation
+2025-07-13 14:55:10,266 - proper_predictor - INFO - Training office_15min
+2025-07-13 14:55:26,189 - proper_predictor - ERROR - Training failed: Found input variables with inconsistent numbers of samples: [6333, 6473]
+2025-07-13 14:55:26,227 - __main__ - ERROR - ❌ PROPER training failed
+2025-07-13 14:55:26,227 - __main__ - ERROR - PROPER system initialization failed
