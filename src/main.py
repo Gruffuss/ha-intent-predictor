@@ -17,7 +17,7 @@ from flask import Flask, jsonify
 
 # Local imports
 from ha_client import HomeAssistantClient
-from feature_engine import FeatureEngine
+from advanced_feature_engine import AdvancedFeatureEngine
 from ml_models import ModelPipeline
 from target_generator import analyze_actual_room_usage
 
@@ -32,6 +32,141 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+class AccuracyTracker:
+    """Track prediction accuracy over time"""
+    
+    def __init__(self, window_size: int = 50):
+        self.window_size = window_size
+        self.room_predictions = []  # Store room occupancy predictions and outcomes
+        self.activity_predictions = []  # Store activity predictions and outcomes
+        
+    def add_prediction(self, prediction: Dict[str, Any], timestamp: datetime):
+        """Store a prediction for later validation"""
+        
+        # Store room occupancy predictions
+        room_pred = {
+            'timestamp': timestamp,
+            'predictions': {
+                'office_2h': prediction.get('office_occupancy_2h', 0),
+                'bedroom_2h': prediction.get('bedroom_occupancy_2h', 0),
+                'kitchen_livingroom_2h': prediction.get('kitchen_livingroom_occupancy_2h', 0)
+            },
+            'activity': prediction.get('current_activity', 'UNKNOWN'),
+            'next_room': prediction.get('next_room', 'unknown'),
+            'validated': False
+        }
+        
+        self.room_predictions.append(room_pred)
+        
+        # Keep only recent predictions
+        if len(self.room_predictions) > self.window_size:
+            self.room_predictions.pop(0)
+    
+    def validate_predictions(self, ha_client, rooms_config: Dict) -> float:
+        """Validate old predictions against actual outcomes"""
+        
+        if len(self.room_predictions) == 0:
+            return 0.0
+        
+        from datetime import timezone, timedelta as td
+        # Use same timezone as prediction timestamps
+        local_tz = timezone(td(hours=3))
+        now = datetime.now(local_tz)
+        validated_count = 0
+        correct_predictions = 0
+        
+        # Check predictions that are old enough to validate (2+ hours)
+        for pred in self.room_predictions:
+            if pred['validated']:
+                continue
+                
+            time_elapsed = (now - pred['timestamp']).total_seconds() / 3600  # hours
+            
+            if time_elapsed >= 2.0:  # 2 hours passed, can validate 2h prediction
+                # Get actual occupancy data for the 2-hour period after prediction
+                validation_start = pred['timestamp']
+                validation_end = pred['timestamp'] + timedelta(hours=2)
+                
+                try:
+                    # Get recent historical data for validation
+                    actual_data = ha_client.get_historical_data(
+                        entity_ids=[entity for entities in rooms_config.values() for entity in entities],
+                        days=1  # Get recent data
+                    )
+                    
+                    # Filter to validation period
+                    if len(actual_data) > 0:
+                        actual_data = actual_data[
+                            (actual_data['last_changed'] >= validation_start) &
+                            (actual_data['last_changed'] <= validation_end)
+                        ]
+                    
+                    if len(actual_data) > 0:
+                        # Calculate actual room occupancy percentages
+                        actual_occupancy = self._calculate_actual_occupancy(actual_data, rooms_config)
+                        
+                        # Compare predictions vs actual
+                        room_accuracy = self._calculate_room_accuracy(
+                            pred['predictions'], actual_occupancy
+                        )
+                        
+                        if room_accuracy >= 0.7:  # 70% threshold for "correct"
+                            correct_predictions += 1
+                        
+                        validated_count += 1
+                        pred['validated'] = True
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to validate prediction: {e}")
+                    pred['validated'] = True  # Mark as validated to avoid retrying
+        
+        # Calculate accuracy percentage
+        if validated_count > 0:
+            accuracy = (correct_predictions / validated_count) * 100
+            return min(accuracy, 100.0)
+        
+        return 0.0
+    
+    def _calculate_actual_occupancy(self, data: pd.DataFrame, rooms_config: Dict) -> Dict[str, float]:
+        """Calculate actual room occupancy percentages from historical data"""
+        
+        room_occupancy = {}
+        total_time = len(data) if len(data) > 0 else 1
+        
+        for room, entities in rooms_config.items():
+            room_data = data[data['entity_id'].isin(entities)]
+            
+            # Count 'on' states as occupancy
+            occupancy_time = len(room_data[room_data['state'] == 'on'])
+            occupancy_percentage = occupancy_time / total_time
+            
+            room_occupancy[f'{room}_2h'] = occupancy_percentage
+        
+        return room_occupancy
+    
+    def _calculate_room_accuracy(self, predicted: Dict[str, float], actual: Dict[str, float]) -> float:
+        """Calculate accuracy between predicted and actual room occupancy"""
+        
+        total_error = 0
+        room_count = 0
+        
+        for room_key in predicted.keys():
+            if room_key in actual:
+                pred_val = predicted[room_key]
+                actual_val = actual[room_key]
+                
+                # Calculate absolute percentage error
+                error = abs(pred_val - actual_val)
+                total_error += error
+                room_count += 1
+        
+        if room_count > 0:
+            average_error = total_error / room_count
+            accuracy = max(0, 1 - average_error)  # Convert error to accuracy
+            return accuracy
+        
+        return 0.0
 
 class IntentPredictionApp:
     """Main application class"""
@@ -51,8 +186,9 @@ class IntentPredictionApp:
             timeout=self.config['home_assistant']['timeout']
         )
         
-        self.feature_engine = FeatureEngine(self.config)
+        self.feature_engine = AdvancedFeatureEngine(self.config)
         self.model_pipeline = ModelPipeline(self.config)
+        self.accuracy_tracker = AccuracyTracker()
         
         # Paths
         self.model_path = os.path.join(self.config['system']['model_save_path'], 'pipeline.joblib')
@@ -125,6 +261,9 @@ class IntentPredictionApp:
             sensors['current_activity']: {'state': 'UNKNOWN', 'unit': None},
             sensors['activity_confidence']: {'state': 0, 'unit': '%'},
             sensors['activity_duration']: {'state': 0, 'unit': 'min'},
+            sensors['office_15min']: {'state': 0, 'unit': '%'},
+            sensors['bedroom_15min']: {'state': 0, 'unit': '%'},
+            sensors['kitchen_livingroom_15min']: {'state': 0, 'unit': '%'},
             sensors['office_2h']: {'state': 0, 'unit': '%'},
             sensors['bedroom_2h']: {'state': 0, 'unit': '%'},
             sensors['kitchen_livingroom_2h']: {'state': 0, 'unit': '%'},
@@ -150,7 +289,7 @@ class IntentPredictionApp:
         try:
             if os.path.exists(self.model_path) and os.path.exists(self.feature_engine_path):
                 self.model_pipeline = ModelPipeline.load(self.model_path)
-                self.feature_engine = FeatureEngine.load(self.feature_engine_path)
+                self.feature_engine = AdvancedFeatureEngine.load(self.feature_engine_path)
                 logger.info("Successfully loaded existing models")
                 return True
         except Exception as e:
@@ -216,38 +355,129 @@ class IntentPredictionApp:
     def _extract_training_features(self, historical_data: pd.DataFrame) -> pd.DataFrame:
         """Extract features from historical data for training"""
         
-        # Group data by time windows for feature extraction
-        time_windows = []
-        
-        # Create hourly windows
+        # Sample time points throughout the historical data for feature extraction
         start_time = historical_data['last_changed'].min()
         end_time = historical_data['last_changed'].max()
+        total_duration = (end_time - start_time).total_seconds()
         
-        current_time = start_time
-        while current_time < end_time:
-            window_end = current_time + timedelta(hours=1)
+        # Use actual sensor state changes as training points (much more data!)
+        # Get all unique timestamps where sensors changed state
+        sensor_change_times = historical_data['last_changed'].drop_duplicates().sort_values()
+        
+        # Filter to have sufficient history (4+ hours) and future data (1+ hour)
+        valid_times = []
+        for timestamp in sensor_change_times:
+            if (timestamp >= start_time + timedelta(hours=4) and 
+                timestamp <= end_time - timedelta(hours=1)):
+                valid_times.append(timestamp)
+        
+        # Use ALL meaningful sensor changes for maximum training data, but limit for memory safety
+        sample_times = valid_times
+        
+        # Memory safety: limit training samples for very large datasets
+        max_training_samples = 100000  # Conservative limit for 8-hour stable training
+        if len(sample_times) > max_training_samples:
+            logger.warning(f"Limiting training samples to {max_training_samples} for memory safety (from {len(sample_times)})")
+            # Sample randomly to preserve temporal distribution
+            import random
+            random.seed(42)  # Reproducible sampling
+            sample_times = sorted(random.sample(sample_times, max_training_samples))
+        
+        logger.info(f"Using {len(sample_times)} sensor change events as training points (from {len(sensor_change_times)} total changes)")
+        
+        # Extract features for each sample time
+        feature_samples = []
+        
+        total_samples = len(sample_times)
+        import time
+        self._training_start_time = time.time()  # Track training start time
+        for idx, sample_time in enumerate(sample_times):
+            # More frequent progress reporting for large datasets (every 1% or 1000 samples)
+            progress_interval = max(1000, total_samples // 100)  # Report every 1% or 1000 samples
+            if idx % progress_interval == 0:
+                progress = (idx / total_samples) * 100
+                logger.info(f"Feature extraction progress: {progress:.1f}% ({idx}/{total_samples} samples)")
+                
+                # Memory monitoring during training
+                self._log_memory_usage_if_available(f"Feature extraction at {progress:.1f}%")
+                
+                # Estimate remaining time for long training
+                if idx > 0:
+                    import time
+                    elapsed = time.time() - getattr(self, '_training_start_time', time.time())
+                    rate = idx / elapsed if elapsed > 0 else 0
+                    remaining_samples = total_samples - idx
+                    eta_seconds = remaining_samples / rate if rate > 0 else 0
+                    eta_hours = eta_seconds / 3600
+                    logger.info(f"Estimated time remaining: {eta_hours:.1f} hours (rate: {rate:.1f} samples/sec)")
             
-            # Get data for this window
+            # Get historical data up to this point (last 4 hours)
+            cutoff_time = sample_time - timedelta(hours=4)
             window_data = historical_data[
-                (historical_data['last_changed'] >= current_time) &
-                (historical_data['last_changed'] < window_end)
+                (historical_data['last_changed'] >= cutoff_time) &
+                (historical_data['last_changed'] <= sample_time)
             ]
             
-            if len(window_data) > 0:
-                # Extract features for this time point
-                features = self.feature_engine.extract_features(window_data, current_time)
-                time_windows.append(features)
-            
-            current_time = window_end
+            if len(window_data) > 10:  # Need sufficient data for feature extraction
+                try:
+                    features = self.feature_engine.extract_features(window_data, sample_time)
+                    if len(features) > 0:
+                        feature_samples.append(features)
+                except Exception as e:
+                    logger.warning(f"Failed to extract features for {sample_time}: {e}")
+                    continue
         
-        if len(time_windows) == 0:
+        if len(feature_samples) == 0:
+            logger.error("No feature samples could be extracted from historical data")
             return pd.DataFrame()
         
-        # Combine all feature windows
-        combined_features = pd.concat(time_windows, ignore_index=True)
+        # Combine all feature samples with proper handling of duplicate columns
+        if len(feature_samples) == 0:
+            logger.error("No feature samples could be extracted from historical data")
+            return pd.DataFrame()
+        
+        # Reset index for each DataFrame to avoid conflicts
+        for i, df in enumerate(feature_samples):
+            feature_samples[i] = df.reset_index(drop=True)
+        
+        # Combine with error handling
+        try:
+            combined_features = pd.concat(feature_samples, ignore_index=True)
+        except Exception as e:
+            logger.error(f"Failed to combine feature samples: {e}")
+            # Fallback: use the first sample as template and ensure consistent columns
+            template_columns = feature_samples[0].columns.tolist()
+            cleaned_samples = []
+            for df in feature_samples:
+                # Ensure all DataFrames have the same columns in the same order
+                df_cleaned = df.reindex(columns=template_columns, fill_value=0)
+                cleaned_samples.append(df_cleaned)
+            combined_features = pd.concat(cleaned_samples, ignore_index=True)
         
         logger.info(f"Extracted {len(combined_features)} feature samples")
         return combined_features
+    
+    def _log_memory_usage_if_available(self, stage: str):
+        """Log memory usage if psutil is available"""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            memory_mb = memory_info.rss / 1024 / 1024
+            virtual_memory = psutil.virtual_memory()
+            
+            logger.info(f"Memory at {stage}: Process: {memory_mb:.1f}MB, System: {virtual_memory.percent:.1f}%")
+            
+            # Warn if memory usage is getting high
+            if virtual_memory.percent > 85:
+                logger.warning(f"High system memory usage: {virtual_memory.percent:.1f}%")
+            if memory_mb > 2000:  # Process using more than 2GB
+                logger.warning(f"High process memory usage: {memory_mb:.1f}MB")
+        except ImportError:
+            # psutil not available, skip memory monitoring
+            pass
+        except Exception as e:
+            logger.debug(f"Failed to get memory usage at {stage}: {e}")
     
     def _schedule_tasks(self):
         """Schedule periodic tasks"""
@@ -270,30 +500,47 @@ class IntentPredictionApp:
                 logger.warning("Models not trained, skipping prediction update")
                 return
             
-            # Get current sensor states
-            current_states = self.ha_client.get_current_states(
-                self.config['data']['presence_entities']
+            # Get recent historical data for feature extraction (same as training)
+            from datetime import timezone, timedelta as td
+            # Use GMT+3 timezone to match user's location
+            local_tz = timezone(td(hours=3))
+            now = datetime.now(local_tz)
+            recent_data = self.ha_client.get_historical_data(
+                entity_ids=self.config['data']['presence_entities'],
+                days=1  # Get last 24 hours for feature extraction
             )
             
-            # Convert to DataFrame format
-            current_data = []
-            now = datetime.now()
+            if len(recent_data) == 0:
+                logger.warning("No recent data available for prediction")
+                return
             
-            for entity_id, state in current_states.items():
-                if state == 'on':
-                    current_data.append({
-                        'entity_id': entity_id,
-                        'state': state,
-                        'last_changed': now
-                    })
+            # Filter to recent data only
+            cutoff_time = now - timedelta(hours=4)  # Use last 4 hours for features
+            recent_data = recent_data[recent_data['last_changed'] >= cutoff_time]
             
-            current_df = pd.DataFrame(current_data)
+            if len(recent_data) == 0:
+                logger.warning("No recent sensor activity for prediction")
+                return
             
-            # Extract features
-            features = self.feature_engine.extract_features(current_df, now)
+            # Extract features using the same method as training
+            features = self.feature_engine.extract_features(recent_data, now)
+            
+            if len(features) == 0:
+                logger.warning("No features extracted for prediction")
+                return
+            
+            # Note: Removed current sensor state features to match training data
+            # The AdvancedFeatureEngine already extracts sufficient current state information
             
             # Generate predictions
             predictions = self.model_pipeline.predict(features)
+            
+            # Store prediction for accuracy tracking
+            self.accuracy_tracker.add_prediction(predictions, now)
+            
+            # Validate old predictions and calculate accuracy
+            accuracy = self.accuracy_tracker.validate_predictions(self.ha_client, self.config['rooms'])
+            predictions['model_accuracy'] = accuracy
             
             # Update Home Assistant sensors
             self._send_predictions_to_ha(predictions)
@@ -302,7 +549,7 @@ class IntentPredictionApp:
             self.prediction_history.append({
                 'timestamp': now,
                 'predictions': predictions,
-                'actual_states': current_states
+                'actual_states': recent_data.to_dict('records') if len(recent_data) > 0 else []
             })
             
             # Keep only last 24 hours of predictions
@@ -336,6 +583,18 @@ class IntentPredictionApp:
                 'state': round(predictions.get('activity_duration_minutes', 0), 0),
                 'attributes': {'unit_of_measurement': 'min'}
             },
+            sensors['office_15min']: {
+                'state': round(predictions.get('office_occupancy_15min', 0) * 100, 1),
+                'attributes': {'unit_of_measurement': '%'}
+            },
+            sensors['bedroom_15min']: {
+                'state': round(predictions.get('bedroom_occupancy_15min', 0) * 100, 1),
+                'attributes': {'unit_of_measurement': '%'}
+            },
+            sensors['kitchen_livingroom_15min']: {
+                'state': round(predictions.get('kitchen_livingroom_occupancy_15min', 0) * 100, 1),
+                'attributes': {'unit_of_measurement': '%'}
+            },
             sensors['office_2h']: {
                 'state': round(predictions.get('office_occupancy_2h', 0) * 100, 1),
                 'attributes': {'unit_of_measurement': '%'}
@@ -354,6 +613,10 @@ class IntentPredictionApp:
             },
             sensors['next_room_confidence']: {
                 'state': round(predictions.get('next_room_confidence', 0) * 100, 1),
+                'attributes': {'unit_of_measurement': '%'}
+            },
+            sensors['model_accuracy']: {
+                'state': round(predictions.get('model_accuracy', 0), 1),
                 'attributes': {'unit_of_measurement': '%'}
             }
         }
@@ -382,7 +645,7 @@ class IntentPredictionApp:
                 if len(features) > 100:
                     # Create targets
                     targets = analyze_actual_room_usage(
-                        features, recent_data, self.config['rooms']
+                        recent_data, self.config['rooms'], len(features)
                     )
                     
                     # Retrain models

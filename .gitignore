@@ -3,8 +3,7 @@ __pycache__/
 *.pyc
 venv/
 
-# Models and data
-models/*.joblib
+# Data and logs (but NOT models - we want to backup models!)
 data/
 logs/
 
