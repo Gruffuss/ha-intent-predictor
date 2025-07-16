@@ -9,8 +9,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, AsyncGenerator
 import aiohttp
-import websocket
+import websockets
 from dataclasses import dataclass
+from kafka import KafkaProducer
+import websocket
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +32,24 @@ class EnrichedEvent:
 class HADataStream:
     """
     Aggressively pull all sensor data continuously
-    Implements the exact streaming approach from CLAUDE.md
+    Implements the exact streaming approach from CLAUDE.md with Kafka integration
     """
     
-    def __init__(self, ha_url: str, token: str):
-        self.ha_url = ha_url.rstrip('/')
-        self.token = token
+    def __init__(self, ha_config: Dict, kafka_config: Dict, timeseries_db=None, feature_store=None):
+        self.ha_url = ha_config['url'].rstrip('/')
+        self.token = ha_config['token']
         self.headers = {
-            'Authorization': f'Bearer {token}',
+            'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
+        
+        # Kafka configuration
+        self.kafka_config = kafka_config
+        self.kafka_producer = None
+        
+        # Database connections
+        self.timeseries_db = timeseries_db
+        self.feature_store = feature_store
         
         # State tracking for enrichment
         self.last_state_changes = {}
@@ -51,7 +61,23 @@ class HADataStream:
         # Zone configuration from CLAUDE.md
         self.zone_config = self._initialize_zone_config()
         
-        logger.info("Initialized HA data stream")
+        logger.info("Initialized HA data stream with Kafka integration")
+    
+    async def initialize(self):
+        """Initialize Kafka producer and connections"""
+        try:
+            # Initialize Kafka producer
+            self.kafka_producer = KafkaProducer(
+                bootstrap_servers=self.kafka_config['bootstrap_servers'],
+                value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8'),
+                **self.kafka_config.get('producer', {})
+            )
+            
+            logger.info("Kafka producer initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize Kafka producer: {e}")
+            raise
     
     def _initialize_zone_config(self) -> Dict[str, Dict]:
         """
@@ -91,7 +117,7 @@ class HADataStream:
             }
         }
     
-    async def stream_all_sensors(self) -> AsyncGenerator[EnrichedEvent, None]:
+    async def stream_all_sensors(self):
         """
         Aggressively pull all sensor data continuously
         Subscribe to ALL state changes as specified in CLAUDE.md
@@ -104,29 +130,12 @@ class HADataStream:
         # Start periodic polling as backup
         polling_task = asyncio.create_task(self._polling_stream())
         
+        # Start event processing task
+        processing_task = asyncio.create_task(self._process_event_queue())
+        
         try:
-            # Process events from queue
-            while True:
-                try:
-                    # Get event from queue (blocks until available)
-                    raw_event = await asyncio.wait_for(self.event_queue.get(), timeout=1.0)
-                    
-                    # Transform to standardized format
-                    enriched_event = await self.enrich_event(raw_event)
-                    
-                    if enriched_event:
-                        yield enriched_event
-                        
-                        # Immediate feature computation
-                        await self.compute_streaming_features(enriched_event)
-                    
-                except asyncio.TimeoutError:
-                    # No events in queue, continue
-                    continue
-                    
-                except Exception as e:
-                    logger.error(f"Error processing event: {e}")
-                    continue
+            # Wait for all tasks to complete
+            await asyncio.gather(websocket_task, polling_task, processing_task)
                     
         except Exception as e:
             logger.error(f"Error in sensor streaming: {e}")
@@ -134,26 +143,134 @@ class HADataStream:
             # Clean up tasks
             websocket_task.cancel()
             polling_task.cancel()
+            processing_task.cancel()
+    
+    async def _process_event_queue(self):
+        """Process events from the queue and send to Kafka"""
+        while True:
+            try:
+                # Get event from queue (blocks until available)
+                raw_event = await asyncio.wait_for(self.event_queue.get(), timeout=1.0)
+                
+                # Transform to standardized format
+                enriched_event = await self.enrich_event(raw_event)
+                
+                if enriched_event:
+                    # Send to Kafka for processing
+                    await self.send_to_kafka(enriched_event)
+                    
+                    # Store in TimescaleDB if available
+                    if self.timeseries_db:
+                        await self.store_event(enriched_event)
+                    
+                    # Immediate feature computation
+                    await self.compute_streaming_features(enriched_event)
+                
+            except asyncio.TimeoutError:
+                # No events in queue, continue
+                continue
+                
+            except Exception as e:
+                logger.error(f"Error processing event: {e}")
+                continue
+    
+    async def send_to_kafka(self, enriched_event: EnrichedEvent):
+        """Send enriched event to Kafka for processing"""
+        try:
+            if not self.kafka_producer:
+                logger.warning("Kafka producer not initialized")
+                return
+            
+            # Convert to dict for JSON serialization
+            event_dict = {
+                'timestamp': enriched_event.timestamp.isoformat(),
+                'entity_id': enriched_event.entity_id,
+                'state': enriched_event.state,
+                'attributes': enriched_event.attributes,
+                'room': enriched_event.room,
+                'sensor_type': enriched_event.sensor_type,
+                'derived': enriched_event.derived
+            }
+            
+            # Send to sensor events topic
+            topic = self.kafka_config['topics']['sensor_events']
+            
+            # Use room as partition key for locality
+            partition_key = enriched_event.room.encode('utf-8') if enriched_event.room else None
+            
+            self.kafka_producer.send(
+                topic=topic,
+                key=partition_key,
+                value=event_dict
+            )
+            
+            logger.debug(f"Sent event to Kafka: {enriched_event.entity_id}")
+            
+        except Exception as e:
+            logger.error(f"Error sending to Kafka: {e}")
+    
+    async def store_event(self, enriched_event: EnrichedEvent):
+        """Store event in TimescaleDB"""
+        try:
+            # Extract numeric value if applicable
+            numeric_value = None
+            if enriched_event.state and enriched_event.state.replace('.', '').replace('-', '').isdigit():
+                try:
+                    numeric_value = float(enriched_event.state)
+                except ValueError:
+                    pass
+            
+            # Store in database
+            await self.timeseries_db.execute("""
+                INSERT INTO sensor_events (
+                    timestamp, entity_id, state, numeric_value, attributes,
+                    room, sensor_type, zone_type, zone_info, person, enriched_data
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            """, 
+                enriched_event.timestamp,
+                enriched_event.entity_id,
+                enriched_event.state,
+                numeric_value,
+                json.dumps(enriched_event.attributes),
+                enriched_event.room,
+                enriched_event.sensor_type,
+                enriched_event.derived.get('zone_info', {}).get('zone_type'),
+                json.dumps(enriched_event.derived.get('zone_info', {})),
+                enriched_event.derived.get('zone_info', {}).get('person'),
+                json.dumps(enriched_event.derived)
+            )
+            
+        except Exception as e:
+            logger.error(f"Error storing event in database: {e}")
+    
+    async def shutdown(self):
+        """Shutdown Kafka producer and connections"""
+        try:
+            if self.kafka_producer:
+                self.kafka_producer.close()
+                logger.info("Kafka producer closed")
+        except Exception as e:
+            logger.error(f"Error closing Kafka producer: {e}")
     
     async def _websocket_stream(self):
-        """WebSocket connection for real-time events"""
+        """WebSocket connection for real-time events using websockets library"""
         while True:
             try:
                 # Connect to HA WebSocket API
                 uri = f"ws://{self.ha_url.replace('http://', '').replace('https://', '')}/api/websocket"
                 
-                async with websocket.connect(uri) as ws:
+                async with websockets.connect(uri) as websocket:
                     # Authenticate
-                    auth_msg = await ws.recv()
+                    auth_msg = await websocket.recv()
                     auth_data = json.loads(auth_msg)
                     
                     if auth_data['type'] == 'auth_required':
-                        await ws.send(json.dumps({
+                        await websocket.send(json.dumps({
                             'type': 'auth',
                             'access_token': self.token
                         }))
                         
-                        auth_result = await ws.recv()
+                        auth_result = await websocket.recv()
                         auth_result_data = json.loads(auth_result)
                         
                         if auth_result_data['type'] != 'auth_ok':
@@ -161,7 +278,7 @@ class HADataStream:
                             return
                     
                     # Subscribe to state changes
-                    await ws.send(json.dumps({
+                    await websocket.send(json.dumps({
                         'id': 1,
                         'type': 'subscribe_events',
                         'event_type': 'state_changed'
@@ -170,7 +287,7 @@ class HADataStream:
                     logger.info("WebSocket connected and subscribed to state changes")
                     
                     # Process incoming events
-                    async for message in ws:
+                    async for message in websocket:
                         try:
                             data = json.loads(message)
                             

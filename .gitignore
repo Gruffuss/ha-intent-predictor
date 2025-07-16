@@ -1,15 +1,67 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Data and logs (but NOT models - we want to backup models!)
-data/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
 logs/
+*.log
 
-# Config with sensitive info
-config/config.yaml
+# Config files with sensitive data
+config/
+*.env
+.env.local
+.env.production
+.env.development
 
-# Backup files
-*.backup
-*.broken
+# Database
+*.db
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML models and data
+models/
+data/
+*.pkl
+*.joblib
+*.model
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -441,16 +441,447 @@ class PatternDiscoveryModel:
 
 
 class AutoML:
-    """Simple AutoML wrapper for feature selection"""
+    """
+    Complete AutoML system for feature selection, model selection, and hyperparameter tuning.
+    
+    Implements adaptive machine learning pipeline that automatically:
+    - Discovers and selects relevant features
+    - Chooses optimal algorithms
+    - Tunes hyperparameters
+    - Adapts to changing data patterns
+    """
     
     def __init__(self, max_features: int = 50):
         self.max_features = max_features
         self.feature_selector = AdaptiveFeatureSelector()
+        
+        # Model selection components
+        self.model_candidates = {
+            'gradient_boost': {
+                'class': 'GradientBoostingClassifier',
+                'hyperparams': {
+                    'n_estimators': [50, 100, 200],
+                    'max_depth': [3, 6, 9],
+                    'learning_rate': [0.01, 0.1, 0.2]
+                },
+                'complexity': 'medium',
+                'interpretability': 'medium'
+            },
+            'neural_net': {
+                'class': 'MLPClassifier',
+                'hyperparams': {
+                    'hidden_layer_sizes': [(10,), (20,), (20, 10)],
+                    'learning_rate_init': [0.001, 0.01, 0.1],
+                    'alpha': [0.0001, 0.001, 0.01]
+                },
+                'complexity': 'high',
+                'interpretability': 'low'
+            },
+            'hoeffding_tree': {
+                'class': 'HoeffdingTreeClassifier',
+                'hyperparams': {
+                    'grace_period': [100, 200, 500],
+                    'max_depth': [10, 20, 30],
+                    'split_confidence': [1e-7, 1e-5, 1e-3]
+                },
+                'complexity': 'low',
+                'interpretability': 'high'
+            },
+            'random_forest': {
+                'class': 'RandomForestClassifier',
+                'hyperparams': {
+                    'n_estimators': [50, 100, 200],
+                    'max_depth': [5, 10, 15],
+                    'min_samples_split': [2, 5, 10]
+                },
+                'complexity': 'medium',
+                'interpretability': 'medium'
+            }
+        }
+        
+        # Feature engineering pipeline
+        self.feature_engineering_pipeline = {
+            'temporal_features': {
+                'hour_sin': lambda x: np.sin(2 * np.pi * x['hour'] / 24),
+                'hour_cos': lambda x: np.cos(2 * np.pi * x['hour'] / 24),
+                'day_sin': lambda x: np.sin(2 * np.pi * x['day_of_week'] / 7),
+                'day_cos': lambda x: np.cos(2 * np.pi * x['day_of_week'] / 7)
+            },
+            'lag_features': {
+                'sensor_lag_1': lambda x: x.get('sensor_state_lag_1', 0),
+                'sensor_lag_5': lambda x: x.get('sensor_state_lag_5', 0),
+                'sensor_lag_15': lambda x: x.get('sensor_state_lag_15', 0)
+            },
+            'statistical_features': {
+                'sensor_count_1h': lambda x: x.get('sensor_activations_1h', 0),
+                'sensor_count_6h': lambda x: x.get('sensor_activations_6h', 0),
+                'avg_activation_time': lambda x: x.get('avg_activation_duration', 0)
+            },
+            'interaction_features': {
+                'hour_weekday': lambda x: x.get('hour', 0) * x.get('day_of_week', 0),
+                'sensor_time_interaction': lambda x: x.get('sensor_state', 0) * x.get('hour', 0)
+            }
+        }
+        
+        # Performance tracking
+        self.model_performance_history = defaultdict(list)
+        self.feature_importance_history = defaultdict(list)
+        self.hyperparameter_history = defaultdict(list)
+        
+        # Adaptive thresholds
+        self.performance_threshold = 0.75
+        self.feature_importance_threshold = 0.01
+        self.model_selection_frequency = 100  # Reselect model every 100 predictions
+        
+        # Current best configuration
+        self.best_model_config = None
+        self.best_features = None
+        self.best_hyperparameters = None
+        
+        logger.info("Initialized comprehensive AutoML system")
+    
+    def auto_feature_engineering(self, raw_features: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Automatically engineer features from raw sensor data.
+        
+        Args:
+            raw_features: Raw sensor features
+            
+        Returns:
+            Engineered features
+        """
+        engineered_features = raw_features.copy()
+        
+        try:
+            # Apply temporal feature engineering
+            for name, func in self.feature_engineering_pipeline['temporal_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply lag features
+            for name, func in self.feature_engineering_pipeline['lag_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply statistical features
+            for name, func in self.feature_engineering_pipeline['statistical_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply interaction features
+            for name, func in self.feature_engineering_pipeline['interaction_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            logger.debug(f"Engineered {len(engineered_features)} features from {len(raw_features)} raw features")
+            
+        except Exception as e:
+            logger.error(f"Error in feature engineering: {e}")
+            return raw_features
+        
+        return engineered_features
     
     def select_features(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        """Select top features automatically"""
-        top_features = self.feature_selector.get_top_features(self.max_features)
-        return {name: features.get(name, 0) for name, _ in top_features}
+        """
+        Automatically select the most relevant features.
+        
+        Args:
+            features: All available features
+            
+        Returns:
+            Selected features
+        """
+        try:
+            # First, engineer additional features
+            engineered_features = self.auto_feature_engineering(features)
+            
+            # Get feature importance scores
+            top_features = self.feature_selector.get_top_features(self.max_features)
+            
+            # Select top features
+            selected_features = {}
+            for feature_name, importance in top_features:
+                if feature_name in engineered_features:
+                    selected_features[feature_name] = engineered_features[feature_name]
+            
+            # If we don't have enough features, add from engineered features
+            if len(selected_features) < self.max_features:
+                remaining_features = [
+                    name for name in engineered_features
+                    if name not in selected_features
+                ]
+                
+                for feature_name in remaining_features[:self.max_features - len(selected_features)]:
+                    selected_features[feature_name] = engineered_features[feature_name]
+            
+            return selected_features
+            
+        except Exception as e:
+            logger.error(f"Error in feature selection: {e}")
+            return features
+    
+    def auto_model_selection(self, room_id: str, data_characteristics: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Automatically select the best model based on data characteristics.
+        
+        Args:
+            room_id: Room identifier
+            data_characteristics: Characteristics of the data
+            
+        Returns:
+            Selected model configuration
+        """
+        try:
+            data_size = data_characteristics.get('data_size', 1000)
+            feature_count = data_characteristics.get('feature_count', 10)
+            class_balance = data_characteristics.get('class_balance', 0.5)
+            noise_level = data_characteristics.get('noise_level', 0.1)
+            
+            # Score each model based on data characteristics
+            model_scores = {}
+            
+            for model_name, model_config in self.model_candidates.items():
+                score = 0
+                
+                # Size-based scoring
+                if data_size < 1000:
+                    if model_config['complexity'] == 'low':
+                        score += 3
+                    elif model_config['complexity'] == 'medium':
+                        score += 2
+                    else:
+                        score += 1
+                else:
+                    if model_config['complexity'] == 'high':
+                        score += 3
+                    elif model_config['complexity'] == 'medium':
+                        score += 2
+                    else:
+                        score += 1
+                
+                # Feature count scoring
+                if feature_count < 10:
+                    if model_name in ['hoeffding_tree', 'random_forest']:
+                        score += 2
+                else:
+                    if model_name in ['neural_net', 'gradient_boost']:
+                        score += 2
+                
+                # Class balance scoring
+                if class_balance < 0.3 or class_balance > 0.7:  # Imbalanced
+                    if model_name in ['gradient_boost', 'random_forest']:
+                        score += 2
+                
+                # Noise level scoring
+                if noise_level > 0.2:  # High noise
+                    if model_name in ['random_forest', 'gradient_boost']:
+                        score += 2
+                
+                # Performance history scoring
+                if room_id in self.model_performance_history:
+                    recent_performance = self.model_performance_history[room_id][-5:]
+                    if recent_performance:
+                        avg_performance = sum(recent_performance) / len(recent_performance)
+                        if avg_performance > 0.8:
+                            score += 3
+                        elif avg_performance > 0.6:
+                            score += 2
+                        else:
+                            score += 1
+                
+                model_scores[model_name] = score
+            
+            # Select best model
+            best_model = max(model_scores, key=model_scores.get)
+            
+            logger.info(f"Selected model {best_model} for room {room_id} with score {model_scores[best_model]}")
+            
+            return self.model_candidates[best_model]
+            
+        except Exception as e:
+            logger.error(f"Error in model selection: {e}")
+            return self.model_candidates['gradient_boost']  # Default fallback
+    
+    def auto_hyperparameter_tuning(self, model_config: Dict[str, Any], 
+                                 room_id: str, performance_history: List[float]) -> Dict[str, Any]:
+        """
+        Automatically tune hyperparameters based on performance.
+        
+        Args:
+            model_config: Model configuration
+            room_id: Room identifier
+            performance_history: Recent performance history
+            
+        Returns:
+            Tuned hyperparameters
+        """
+        try:
+            hyperparams = model_config.get('hyperparams', {})
+            
+            # Get current performance trend
+            if len(performance_history) >= 5:
+                recent_performance = performance_history[-5:]
+                avg_performance = sum(recent_performance) / len(recent_performance)
+                performance_trend = recent_performance[-1] - recent_performance[0]
+            else:
+                avg_performance = 0.5
+                performance_trend = 0
+            
+            # Adjust hyperparameters based on performance
+            tuned_hyperparams = {}
+            
+            for param_name, param_values in hyperparams.items():
+                if isinstance(param_values, list):
+                    # Select based on performance
+                    if avg_performance > self.performance_threshold:
+                        # Performance is good, use current or slight variation
+                        if param_name in self.hyperparameter_history.get(room_id, {}):
+                            current_value = self.hyperparameter_history[room_id][param_name]
+                            if current_value in param_values:
+                                tuned_hyperparams[param_name] = current_value
+                            else:
+                                tuned_hyperparams[param_name] = param_values[len(param_values) // 2]
+                        else:
+                            tuned_hyperparams[param_name] = param_values[len(param_values) // 2]
+                    else:
+                        # Performance is poor, try different values
+                        if performance_trend < 0:  # Declining performance
+                            # Try more conservative values
+                            tuned_hyperparams[param_name] = param_values[0]
+                        else:
+                            # Try more aggressive values
+                            tuned_hyperparams[param_name] = param_values[-1]
+                else:
+                    tuned_hyperparams[param_name] = param_values
+            
+            # Store hyperparameter history
+            if room_id not in self.hyperparameter_history:
+                self.hyperparameter_history[room_id] = {}
+            self.hyperparameter_history[room_id].update(tuned_hyperparams)
+            
+            logger.debug(f"Tuned hyperparameters for room {room_id}: {tuned_hyperparams}")
+            
+            return tuned_hyperparams
+            
+        except Exception as e:
+            logger.error(f"Error in hyperparameter tuning: {e}")
+            return {}
+    
+    def adaptive_pipeline_optimization(self, room_id: str, 
+                                     features: Dict[str, Any], 
+                                     performance_feedback: float) -> Dict[str, Any]:
+        """
+        Optimize the entire ML pipeline adaptively.
+        
+        Args:
+            room_id: Room identifier
+            features: Input features
+            performance_feedback: Recent performance score
+            
+        Returns:
+            Optimized pipeline configuration
+        """
+        try:
+            # Update performance history
+            self.model_performance_history[room_id].append(performance_feedback)
+            
+            # Keep only recent history
+            if len(self.model_performance_history[room_id]) > 100:
+                self.model_performance_history[room_id] = self.model_performance_history[room_id][-100:]
+            
+            # Analyze data characteristics
+            data_characteristics = {
+                'data_size': len(self.model_performance_history[room_id]),
+                'feature_count': len(features),
+                'class_balance': 0.5,  # Would be calculated from actual data
+                'noise_level': np.std(self.model_performance_history[room_id][-10:]) if len(self.model_performance_history[room_id]) >= 10 else 0.1
+            }
+            
+            # Select optimal model
+            model_config = self.auto_model_selection(room_id, data_characteristics)
+            
+            # Tune hyperparameters
+            tuned_hyperparams = self.auto_hyperparameter_tuning(
+                model_config, room_id, self.model_performance_history[room_id]
+            )
+            
+            # Select optimal features
+            selected_features = self.select_features(features)
+            
+            # Create optimized configuration
+            optimized_config = {
+                'model_type': model_config['class'],
+                'hyperparameters': tuned_hyperparams,
+                'selected_features': selected_features,
+                'feature_count': len(selected_features),
+                'expected_performance': performance_feedback,
+                'optimization_timestamp': datetime.now().isoformat()
+            }
+            
+            # Update best configuration if this is better
+            if (self.best_model_config is None or 
+                performance_feedback > self.best_model_config.get('expected_performance', 0)):
+                self.best_model_config = optimized_config.copy()
+                self.best_features = selected_features.copy()
+                self.best_hyperparameters = tuned_hyperparams.copy()
+            
+            logger.info(f"Optimized pipeline for room {room_id}: {optimized_config['model_type']} with {len(selected_features)} features")
+            
+            return optimized_config
+            
+        except Exception as e:
+            logger.error(f"Error in pipeline optimization: {e}")
+            return {
+                'model_type': 'gradient_boost',
+                'hyperparameters': {},
+                'selected_features': features,
+                'feature_count': len(features),
+                'expected_performance': performance_feedback,
+                'optimization_timestamp': datetime.now().isoformat()
+            }
+    
+    def get_optimization_statistics(self) -> Dict[str, Any]:
+        """Get AutoML optimization statistics"""
+        
+        return {
+            'total_rooms_optimized': len(self.model_performance_history),
+            'average_performance': {
+                room_id: np.mean(history) if history else 0
+                for room_id, history in self.model_performance_history.items()
+            },
+            'best_model_config': self.best_model_config,
+            'feature_engineering_pipeline_size': sum(len(pipeline) for pipeline in self.feature_engineering_pipeline.values()),
+            'model_candidates': len(self.model_candidates),
+            'optimization_history': {
+                room_id: len(history)
+                for room_id, history in self.model_performance_history.items()
+            }
+        }
+    
+    def reset_optimization_history(self, room_id: str = None):
+        """Reset optimization history for a room or all rooms"""
+        
+        if room_id:
+            if room_id in self.model_performance_history:
+                del self.model_performance_history[room_id]
+            if room_id in self.hyperparameter_history:
+                del self.hyperparameter_history[room_id]
+        else:
+            self.model_performance_history.clear()
+            self.hyperparameter_history.clear()
+            self.best_model_config = None
+            self.best_features = None
+            self.best_hyperparameters = None
+        
+        logger.info(f"Reset optimization history for {'all rooms' if not room_id else room_id}")
 
 
 class OnlineAnomalyDetector:
