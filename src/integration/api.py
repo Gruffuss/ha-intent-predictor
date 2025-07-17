@@ -22,8 +22,8 @@ import uvicorn
 
 from ..learning.adaptive_predictor import AdaptiveOccupancyPredictor
 from ..integration.monitoring import PerformanceMonitor
-from ..storage.timeseries_db import TimeSeriesDB
-from ..storage.feature_store import FeatureStore
+from ..storage.timeseries_db import TimescaleDBManager
+from ..storage.feature_store import RedisFeatureStore
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +129,10 @@ def create_api_app(system_instance) -> FastAPI:
     def get_monitor() -> PerformanceMonitor:
         return app.state.system.components.get('monitor')
     
-    def get_timeseries_db() -> TimeSeriesDB:
+    def get_timeseries_db() -> TimescaleDBManager:
         return app.state.system.components.get('timeseries_db')
     
-    def get_feature_store() -> FeatureStore:
+    def get_feature_store() -> RedisFeatureStore:
         return app.state.system.components.get('feature_store')
     
     # Health check endpoint
@@ -413,7 +413,7 @@ def create_api_app(system_instance) -> FastAPI:
                 SELECT pattern_type, pattern_data, significance_score, 
                        confidence, discovered_at
                 FROM discovered_patterns
-                WHERE room = $1 AND is_active = TRUE
+                WHERE room = $1
                 ORDER BY significance_score DESC
                 LIMIT $2
             """, room_id, limit)
@@ -515,9 +515,12 @@ def create_api_app(system_instance) -> FastAPI:
                 end_time = datetime.now()
             
             history = await db.fetch("""
-                SELECT timestamp, occupied, confidence, 
-                       inference_method, duration_minutes
-                FROM room_occupancy
+                SELECT timestamp, 
+                       CASE WHEN probability > 0.5 THEN true ELSE false END as occupied,
+                       confidence, 
+                       model_name as inference_method,
+                       horizon_minutes as duration_minutes
+                FROM occupancy_predictions
                 WHERE room = $1
                 AND timestamp BETWEEN $2 AND $3
                 ORDER BY timestamp DESC

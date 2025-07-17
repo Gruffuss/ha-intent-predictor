@@ -25,8 +25,8 @@ from src.learning.adaptive_predictor import AdaptiveOccupancyPredictor
 from src.integration.api import create_api_app
 from src.integration.ha_publisher import DynamicHAIntegration
 from src.integration.monitoring import PerformanceMonitor
-from src.storage.timeseries_db import TimeSeriesDB
-from src.storage.feature_store import FeatureStore
+from src.storage.timeseries_db import TimescaleDBManager
+from src.storage.feature_store import RedisFeatureStore
 from src.storage.model_store import ModelStore
 from src.adaptation.drift_detection import DriftDetector
 from config.config_loader import ConfigLoader
@@ -96,13 +96,13 @@ class HAIntentPredictorSystem:
         logger.info("Initializing storage components...")
         
         # TimescaleDB for time series data
-        self.components['timeseries_db'] = TimeSeriesDB(
+        self.components['timeseries_db'] = TimescaleDBManager(
             self.config.get('database.timescale')
         )
         await self.components['timeseries_db'].connect()
         
         # Redis for feature caching
-        self.components['feature_store'] = FeatureStore(
+        self.components['feature_store'] = RedisFeatureStore(
             self.config.get('redis')
         )
         await self.components['feature_store'].connect()

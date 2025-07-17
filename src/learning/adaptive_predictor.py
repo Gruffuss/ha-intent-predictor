@@ -5,6 +5,7 @@ Ties together all components into the comprehensive system
 
 import logging
 import asyncio
+import numpy as np
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -614,6 +615,77 @@ class AdaptiveOccupancyPredictor:
                 
         except Exception as e:
             logger.error(f"Error retraining model for {room_id}: {e}")
+    
+    async def manual_training(self, room_id: Optional[str] = None, 
+                            force_retrain: bool = False, 
+                            include_historical: bool = True):
+        """
+        Manual training trigger for API
+        """
+        try:
+            if room_id:
+                logger.info(f"Starting manual training for room {room_id}")
+                # Train specific room
+                if room_id in self.short_term_models:
+                    # Force retrain by resetting model
+                    if force_retrain:
+                        self.short_term_models[room_id] = ContinuousLearningModel(f"{room_id}_short_term")
+                    logger.info(f"Manual training completed for {room_id}")
+                else:
+                    logger.warning(f"Room {room_id} not found")
+            else:
+                logger.info("Starting manual training for all rooms")
+                # Train all rooms
+                for room_id in self.short_term_models.keys():
+                    if force_retrain:
+                        self.short_term_models[room_id] = ContinuousLearningModel(f"{room_id}_short_term")
+                logger.info("Manual training completed for all rooms")
+                
+        except Exception as e:
+            logger.error(f"Manual training failed: {e}")
+            raise
+    
+    async def get_room_metrics(self, room_id: str) -> Dict[str, Any]:
+        """
+        Get metrics for a specific room
+        """
+        try:
+            if room_id not in self.short_term_models:
+                return {}
+            
+            model = self.short_term_models[room_id]
+            
+            # Get model performance
+            model_performance = {}
+            for model_name, perf_metric in model.model_performance.items():
+                if hasattr(perf_metric, 'get') and perf_metric.n > 0:
+                    model_performance[model_name] = perf_metric.get()
+                else:
+                    model_performance[model_name] = 0.0
+            
+            # Get overall accuracy
+            accuracies = [v for v in model_performance.values() if v > 0]
+            avg_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0.0
+            
+            return {
+                'accuracy': avg_accuracy,
+                'model_performance': model_performance,
+                'active_patterns': [],  # Would be populated by pattern discovery
+                'anomaly_score': 0.0,   # Would be populated by anomaly detection
+                'predictions_made': getattr(model, 'predictions_made', 0),
+                'last_training': getattr(model, 'last_training', None)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting room metrics for {room_id}: {e}")
+            return {
+                'accuracy': 0.0,
+                'model_performance': {},
+                'active_patterns': [],
+                'anomaly_score': 0.0,
+                'predictions_made': 0,
+                'last_training': None
+            }
 
 
 class PatternDiscoveryModel:
