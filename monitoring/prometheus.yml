@@ -1,0 +1,99 @@
+# Prometheus configuration for HA Intent Predictor
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # HA Predictor application metrics
+  - job_name: 'ha-predictor'
+    static_configs:
+      - targets: ['ha-predictor:8000']
+    metrics_path: '/metrics/prometheus'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # System metrics from the application
+  - job_name: 'ha-predictor-system'
+    static_configs:
+      - targets: ['ha-predictor:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # TimescaleDB metrics (via postgres_exporter if available)
+  - job_name: 'timescaledb'
+    static_configs:
+      - targets: ['timescaledb:5432']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      target: ['timescaledb:5432']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: postgres-exporter:9187
+
+  # Redis metrics (via redis_exporter if available)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      target: ['redis:6379']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: redis-exporter:9121
+
+  # Kafka metrics (via JMX if available)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9308']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  # Node exporter for system metrics (if deployed)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+# Alertmanager configuration (if needed)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+# Storage configuration
+storage:
+  tsdb:
+    path: /prometheus
+    retention.time: 90d
+    retention.size: 10GB
+
+# Remote write configuration (for long-term storage)
+# remote_write:
+#   - url: "http://timescaledb:5432/prometheus"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       max_shards: 200
+#       capacity: 2500

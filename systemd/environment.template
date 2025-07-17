@@ -1,0 +1,42 @@
+# Environment configuration for HA Intent Predictor
+# Copy this file to /etc/ha-intent-predictor/environment and fill in the values
+
+# Home Assistant Configuration
+HA_URL=http://homeassistant:8123
+HA_TOKEN=your_ha_token_here
+HA_WS_URL=ws://homeassistant:8123/api/websocket
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=ha_predictor
+DB_USER=ha_predictor
+DB_PASSWORD=your_db_password_here
+DB_SSL=prefer
+
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=
+
+# Kafka Configuration
+KAFKA_SERVERS=localhost:9092
+
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+API_LOG_LEVEL=info
+
+# Logging Configuration
+LOG_LEVEL=INFO
+DEBUG=false
+
+# Model Storage
+MODEL_STORAGE_PATH=/opt/ha-intent-predictor/models
+
+# Monitoring
+GRAFANA_PASSWORD=your_grafana_password_here
+
+# Security
+SECRET_KEY=your_secret_key_here

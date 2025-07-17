@@ -420,6 +420,200 @@ class AdaptiveOccupancyPredictor:
             logger.info("System cleanup completed")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
+    
+    async def process_sensor_event(self, event: Dict[str, Any]):
+        """
+        Process a single sensor event through the complete learning pipeline
+        This is the main entry point for the learning loop
+        """
+        try:
+            # 1. Extract room and basic info
+            room_id = event.get('room', 'unknown')
+            entity_id = event.get('entity_id', '')
+            timestamp = event.get('timestamp', datetime.now())
+            
+            # 2. Determine current occupancy state for learning
+            current_occupancy = self.determine_occupancy(event)
+            
+            # 3. Learn from this observation
+            await self.learn_from_observation(room_id, event, current_occupancy)
+            
+            # 4. Make predictions for all horizons
+            predictions = await self.predict_all_horizons(room_id)
+            
+            # 5. Update performance metrics
+            if current_occupancy is not None:
+                await self.performance_monitor.update_metrics(
+                    room_id=room_id,
+                    prediction_results=predictions,
+                    actual_occupancy=current_occupancy
+                )
+            
+            # 6. Return predictions for publishing
+            return predictions
+            
+        except Exception as e:
+            logger.error(f"Error processing sensor event {event.get('entity_id', '')}: {e}")
+            return {}
+    
+    def determine_occupancy(self, event: Dict[str, Any]) -> Optional[bool]:
+        """
+        Determine ground truth occupancy from sensor event
+        This is the critical component that provides training labels
+        """
+        entity_id = event.get('entity_id', '')
+        state = event.get('state', '')
+        room = event.get('room', '')
+        
+        # For presence sensors, it's straightforward
+        if 'presence' in entity_id.lower():
+            return state == 'on'
+        
+        # For door sensors in bathrooms, use bathroom predictor logic
+        if room in ['bathroom', 'small_bathroom'] and 'door' in entity_id.lower():
+            return self.bathroom_predictor.process_bathroom_event(event).get('occupied', None)
+        
+        # For other sensors, we can't directly determine occupancy
+        # Let the system learn patterns instead
+        return None
+    
+    async def predict_all_horizons(self, room_id: str) -> Dict[int, Dict[str, Any]]:
+        """
+        Generate predictions for all configured horizons
+        """
+        predictions = {}
+        
+        # Get configured horizons from config or use defaults
+        horizons = [5, 15, 30, 60, 120]  # minutes
+        
+        for horizon in horizons:
+            try:
+                prediction = await self.predict_occupancy(room_id, horizon)
+                predictions[horizon] = prediction
+            except Exception as e:
+                logger.warning(f"Failed to predict {horizon}min for {room_id}: {e}")
+                predictions[horizon] = {
+                    'probability': 0.5,
+                    'uncertainty': 1.0,
+                    'confidence': 0.0,
+                    'error': str(e)
+                }
+        
+        return predictions
+    
+    async def run_continuous_learning(self):
+        """
+        Run the continuous learning loop
+        This method should be called as a background task
+        """
+        logger.info("Starting continuous learning loop")
+        
+        while True:
+            try:
+                # Periodic tasks
+                await asyncio.sleep(60)  # Run every minute
+                
+                # 1. Update pattern discovery
+                await self.update_pattern_discovery()
+                
+                # 2. Optimize prediction horizons
+                await self.optimize_prediction_horizons()
+                
+                # 3. Update feature importance
+                await self.update_feature_importance()
+                
+                # 4. Check for model drift
+                await self.check_model_drift()
+                
+                # 5. Optimize resource usage
+                await self.optimize_resources()
+                
+            except Exception as e:
+                logger.error(f"Error in continuous learning loop: {e}")
+                await asyncio.sleep(5)  # Wait before retry
+    
+    async def update_pattern_discovery(self):
+        """Update pattern discovery for all rooms"""
+        try:
+            for room_id in self.rooms:
+                # Get recent events for pattern analysis
+                recent_events = await self.timeseries_db.get_recent_events(
+                    minutes=1440,  # Last 24 hours
+                    rooms=[room_id]
+                )
+                
+                if len(recent_events) > 10:  # Need minimum data
+                    patterns = self.pattern_discovery.discover_patterns(recent_events, room_id)
+                    logger.debug(f"Updated patterns for {room_id}: {len(patterns)} patterns found")
+                    
+        except Exception as e:
+            logger.error(f"Error updating pattern discovery: {e}")
+    
+    async def optimize_prediction_horizons(self):
+        """Optimize prediction horizons based on accuracy"""
+        try:
+            # This would analyze prediction accuracy at different horizons
+            # and adjust the horizons accordingly
+            pass
+        except Exception as e:
+            logger.error(f"Error optimizing prediction horizons: {e}")
+    
+    async def update_feature_importance(self):
+        """Update feature importance across all models"""
+        try:
+            # Get top features from adaptive selector
+            top_features = self.adaptive_feature_selector.get_top_features(50)
+            logger.debug(f"Top features updated: {len(top_features)} features")
+        except Exception as e:
+            logger.error(f"Error updating feature importance: {e}")
+    
+    async def check_model_drift(self):
+        """Check for model drift and trigger retraining if needed"""
+        try:
+            # Check performance degradation
+            for room_id in self.rooms:
+                performance = await self.performance_monitor.get_room_performance(room_id)
+                if performance.get('accuracy', 1.0) < 0.6:  # Threshold
+                    logger.warning(f"Model drift detected for {room_id}, accuracy: {performance.get('accuracy')}")
+                    # Trigger model retraining
+                    await self.retrain_model(room_id)
+        except Exception as e:
+            logger.error(f"Error checking model drift: {e}")
+    
+    async def optimize_resources(self):
+        """Optimize resource usage"""
+        try:
+            # Use resource optimizer to adjust model complexity
+            self.resource_optimizer.optimize_models(list(self.short_term_models.values()))
+        except Exception as e:
+            logger.error(f"Error optimizing resources: {e}")
+    
+    async def retrain_model(self, room_id: str):
+        """Retrain model for a specific room"""
+        try:
+            logger.info(f"Retraining model for {room_id}")
+            
+            # Get historical data for retraining
+            historical_data = await self.timeseries_db.get_recent_events(
+                minutes=10080,  # Last week
+                rooms=[room_id]
+            )
+            
+            if len(historical_data) > 100:
+                # Reinitialize model
+                self.short_term_models[room_id] = ContinuousLearningModel(room_id)
+                
+                # Retrain with historical data
+                for event in historical_data:
+                    occupancy = self.determine_occupancy(event)
+                    if occupancy is not None:
+                        features = self.dynamic_feature_discovery.discover_features([event])
+                        self.short_term_models[room_id].learn_one(features, occupancy)
+                
+                logger.info(f"Model retrained for {room_id} with {len(historical_data)} events")
+                
+        except Exception as e:
+            logger.error(f"Error retraining model for {room_id}: {e}")
 
 
 class PatternDiscoveryModel:
@@ -455,46 +649,52 @@ class AutoML:
         self.max_features = max_features
         self.feature_selector = AdaptiveFeatureSelector()
         
-        # Model selection components
+        # Model selection components - using River framework for online learning
         self.model_candidates = {
-            'gradient_boost': {
-                'class': 'GradientBoostingClassifier',
+            'adaptive_random_forest': {
+                'factory': lambda: ensemble.AdaptiveRandomForestClassifier(
+                    n_models=10,
+                    max_features="sqrt",
+                    lambda_value=6,
+                    grace_period=200
+                ),
                 'hyperparams': {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [3, 6, 9],
-                    'learning_rate': [0.01, 0.1, 0.2]
+                    'n_models': [5, 10, 15],
+                    'max_features': ["sqrt", "log2", None],
+                    'lambda_value': [6, 8, 10],
+                    'grace_period': [100, 200, 500]
                 },
                 'complexity': 'medium',
                 'interpretability': 'medium'
             },
-            'neural_net': {
-                'class': 'MLPClassifier',
-                'hyperparams': {
-                    'hidden_layer_sizes': [(10,), (20,), (20, 10)],
-                    'learning_rate_init': [0.001, 0.01, 0.1],
-                    'alpha': [0.0001, 0.001, 0.01]
-                },
-                'complexity': 'high',
-                'interpretability': 'low'
-            },
             'hoeffding_tree': {
-                'class': 'HoeffdingTreeClassifier',
+                'factory': lambda: tree.HoeffdingTreeClassifier(
+                    grace_period=200,
+                    split_confidence=1e-7
+                ),
                 'hyperparams': {
                     'grace_period': [100, 200, 500],
-                    'max_depth': [10, 20, 30],
                     'split_confidence': [1e-7, 1e-5, 1e-3]
                 },
                 'complexity': 'low',
                 'interpretability': 'high'
             },
-            'random_forest': {
-                'class': 'RandomForestClassifier',
+            'logistic_regression': {
+                'factory': lambda: linear_model.LogisticRegression(l2=0.1),
                 'hyperparams': {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [5, 10, 15],
-                    'min_samples_split': [2, 5, 10]
+                    'l2': [0.001, 0.01, 0.1, 1.0],
+                    'l1': [0.0, 0.001, 0.01, 0.1]
                 },
-                'complexity': 'medium',
+                'complexity': 'low',
+                'interpretability': 'high'
+            },
+            'passive_aggressive': {
+                'factory': lambda: linear_model.PAClassifier(C=1.0),
+                'hyperparams': {
+                    'C': [0.1, 1.0, 10.0],
+                    'mode': [1, 2]
+                },
+                'complexity': 'low',
                 'interpretability': 'medium'
             }
         }
@@ -539,6 +739,11 @@ class AutoML:
         self.best_hyperparameters = None
         
         logger.info("Initialized comprehensive AutoML system")
+        
+        # Initialize performance tracking
+        self.model_evaluations = defaultdict(list)
+        self.current_best_model = None
+        self.evaluation_counter = 0
     
     def auto_feature_engineering(self, raw_features: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -642,73 +847,151 @@ class AutoML:
         try:
             data_size = data_characteristics.get('data_size', 1000)
             feature_count = data_characteristics.get('feature_count', 10)
-            class_balance = data_characteristics.get('class_balance', 0.5)
-            noise_level = data_characteristics.get('noise_level', 0.1)
             
-            # Score each model based on data characteristics
-            model_scores = {}
+            # Evaluate all candidate models
+            self.evaluation_counter += 1
             
-            for model_name, model_config in self.model_candidates.items():
-                score = 0
-                
-                # Size-based scoring
-                if data_size < 1000:
-                    if model_config['complexity'] == 'low':
-                        score += 3
-                    elif model_config['complexity'] == 'medium':
-                        score += 2
-                    else:
-                        score += 1
-                else:
-                    if model_config['complexity'] == 'high':
-                        score += 3
-                    elif model_config['complexity'] == 'medium':
-                        score += 2
-                    else:
-                        score += 1
-                
-                # Feature count scoring
-                if feature_count < 10:
-                    if model_name in ['hoeffding_tree', 'random_forest']:
-                        score += 2
-                else:
-                    if model_name in ['neural_net', 'gradient_boost']:
-                        score += 2
-                
-                # Class balance scoring
-                if class_balance < 0.3 or class_balance > 0.7:  # Imbalanced
-                    if model_name in ['gradient_boost', 'random_forest']:
-                        score += 2
-                
-                # Noise level scoring
-                if noise_level > 0.2:  # High noise
-                    if model_name in ['random_forest', 'gradient_boost']:
-                        score += 2
-                
-                # Performance history scoring
-                if room_id in self.model_performance_history:
-                    recent_performance = self.model_performance_history[room_id][-5:]
-                    if recent_performance:
-                        avg_performance = sum(recent_performance) / len(recent_performance)
-                        if avg_performance > 0.8:
-                            score += 3
-                        elif avg_performance > 0.6:
-                            score += 2
-                        else:
-                            score += 1
-                
-                model_scores[model_name] = score
+            # Select model based on performance history and data characteristics
+            if self.evaluation_counter % self.model_selection_frequency == 0:
+                self.current_best_model = self._evaluate_all_models(room_id, data_characteristics)
             
-            # Select best model
-            best_model = max(model_scores, key=model_scores.get)
-            
-            logger.info(f"Selected model {best_model} for room {room_id} with score {model_scores[best_model]}")
-            
-            return self.model_candidates[best_model]
-            
+            # Return current best model or default
+            if self.current_best_model:
+                return self.current_best_model
+            else:
+                # Default to adaptive random forest for new rooms
+                return {
+                    'model_name': 'adaptive_random_forest',
+                    'hyperparams': {
+                        'n_models': 10,
+                        'max_features': "sqrt",
+                        'lambda_value': 6,
+                        'grace_period': 200
+                    },
+                    'complexity': 'medium'
+                }
+                
         except Exception as e:
-            logger.error(f"Error in model selection: {e}")
-            return self.model_candidates['gradient_boost']  # Default fallback
+            logger.error(f"Error in model selection for {room_id}: {e}")
+            return {
+                'model_name': 'logistic_regression',
+                'hyperparams': {'l2': 0.1},
+                'complexity': 'low'
+            }
+    
+    def _evaluate_all_models(self, room_id: str, data_characteristics: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Evaluate all candidate models and return the best one
+        """
+        best_model = None
+        best_score = -1
+        
+        for model_name, model_config in self.model_candidates.items():
+            # Get historical performance
+            historical_performance = self.model_evaluations[f"{room_id}_{model_name}"]
+            
+            if historical_performance:
+                # Calculate average performance
+                avg_score = sum(historical_performance[-10:]) / len(historical_performance[-10:])
+                
+                # Consider data characteristics
+                complexity_penalty = self._calculate_complexity_penalty(
+                    model_config['complexity'], 
+                    data_characteristics
+                )
+                
+                final_score = avg_score - complexity_penalty
+                
+                if final_score > best_score:
+                    best_score = final_score
+                    best_model = {
+                        'model_name': model_name,
+                        'hyperparams': self._optimize_hyperparameters(model_name, room_id),
+                        'complexity': model_config['complexity'],
+                        'score': final_score
+                    }
+        
+        return best_model
+    
+    def _calculate_complexity_penalty(self, complexity: str, data_characteristics: Dict[str, Any]) -> float:
+        """
+        Calculate penalty for model complexity based on data characteristics
+        """
+        data_size = data_characteristics.get('data_size', 1000)
+        feature_count = data_characteristics.get('feature_count', 10)
+        
+        # Penalty based on data size
+        if data_size < 500:
+            complexity_penalties = {'low': 0.0, 'medium': 0.1, 'high': 0.2}
+        elif data_size < 2000:
+            complexity_penalties = {'low': 0.0, 'medium': 0.05, 'high': 0.15}
+        else:
+            complexity_penalties = {'low': 0.0, 'medium': 0.0, 'high': 0.05}
+        
+        return complexity_penalties.get(complexity, 0.0)
+    
+    def _optimize_hyperparameters(self, model_name: str, room_id: str) -> Dict[str, Any]:
+        """
+        Optimize hyperparameters for a specific model
+        """
+        model_config = self.model_candidates.get(model_name, {})
+        hyperparams = model_config.get('hyperparams', {})
+        
+        # For now, use default hyperparameters
+        # In a full implementation, this would use techniques like:
+        # - Grid search
+        # - Random search
+        # - Bayesian optimization
+        # - Hyperband
+        
+        optimized_params = {}
+        for param_name, param_values in hyperparams.items():
+            if isinstance(param_values, list):
+                # For now, select middle value
+                optimized_params[param_name] = param_values[len(param_values) // 2]
+            else:
+                optimized_params[param_name] = param_values
+        
+        return optimized_params
+    
+    def update_model_performance(self, room_id: str, model_name: str, accuracy: float):
+        """
+        Update performance tracking for a model
+        """
+        key = f"{room_id}_{model_name}"
+        self.model_evaluations[key].append(accuracy)
+        
+        # Keep only last 100 evaluations
+        if len(self.model_evaluations[key]) > 100:
+            self.model_evaluations[key] = self.model_evaluations[key][-100:]
+        
+        # Update best model if this is current best
+        if (self.current_best_model and 
+            self.current_best_model.get('model_name') == model_name):
+            
+            # Check if we need to find a new best model
+            recent_performance = self.model_evaluations[key][-5:]
+            if recent_performance and sum(recent_performance) / len(recent_performance) < 0.6:
+                logger.info(f"Model {model_name} for {room_id} performance degraded, triggering reselection")
+                self.evaluation_counter = self.model_selection_frequency  # Trigger reselection
+    
+    def get_automl_summary(self) -> Dict[str, Any]:
+        """
+        Get summary of AutoML system state
+        """
+        return {
+            'current_best_model': self.current_best_model,
+            'evaluation_counter': self.evaluation_counter,
+            'model_evaluations': {
+                key: {
+                    'count': len(evaluations),
+                    'average': sum(evaluations) / len(evaluations) if evaluations else 0,
+                    'recent_average': sum(evaluations[-5:]) / len(evaluations[-5:]) if evaluations else 0
+                }
+                for key, evaluations in self.model_evaluations.items()
+            },
+            'available_models': list(self.model_candidates.keys())
+        }
     
     def auto_hyperparameter_tuning(self, model_config: Dict[str, Any], 
                                  room_id: str, performance_history: List[float]) -> Dict[str, Any]:

@@ -6,7 +6,8 @@ Implements the adaptive prediction system from CLAUDE.md
 import logging
 from collections import defaultdict
 from typing import Dict, Any, Optional
-from river import ensemble, tree, neural_net, metrics, preprocessing
+from river import ensemble, tree, metrics, preprocessing
+from river import linear_model
 from river import stats
 
 logger = logging.getLogger(__name__)
@@ -26,15 +27,12 @@ class ContinuousLearningModel:
                 lambda_value=6,
                 grace_period=10
             ),
-            'hoeffding_tree': tree.ExtremelyFastDecisionTreeClassifier(
+            'hoeffding_tree': tree.HoeffdingTreeClassifier(
                 grace_period=10,
-                split_confidence=1e-5,
-                nominal_attributes=['sensor_type', 'room']
+                split_confidence=1e-5
             ),
-            'neural': neural_net.MLPClassifier(
-                hidden_dims=(20, 10),
-                activations=('relu', 'relu', 'identity'),
-                learning_rate=0.001
+            'logistic': linear_model.LogisticRegression(
+                l2=0.1
             )
         }
         
@@ -43,7 +41,7 @@ class ContinuousLearningModel:
         
         # Track each model's performance
         self.model_performance = {
-            name: metrics.Rolling(metrics.ROCAUC(), window_size=1000)
+            name: metrics.Rolling(metrics.Accuracy(), window_size=1000)
             for name in self.models
         }
         
@@ -126,12 +124,26 @@ class ContinuousLearningModel:
         
         for name, model in self.models.items():
             try:
-                pred = model.predict_proba_one(features)
-                if pred is not None:
-                    predictions[name] = pred.get(True, 0.0)
+                # Different models have different prediction interfaces
+                if hasattr(model, 'predict_proba_one'):
+                    pred = model.predict_proba_one(features)
+                    if pred is not None:
+                        # Handle both dict and float returns
+                        if isinstance(pred, dict):
+                            predictions[name] = pred.get(True, pred.get(1, 0.5))
+                        else:
+                            predictions[name] = float(pred)
+                    else:
+                        predictions[name] = 0.5  # Neutral prediction
+                elif hasattr(model, 'predict_one'):
+                    # For models that only have predict_one
+                    pred = model.predict_one(features)
+                    predictions[name] = float(pred) if pred is not None else 0.5
                 else:
-                    predictions[name] = 0.5  # Neutral prediction
-            except:
+                    logger.warning(f"Model {name} has no prediction method")
+                    predictions[name] = 0.5
+            except Exception as e:
+                logger.debug(f"Error getting prediction from {name}: {e}")
                 predictions[name] = 0.5
         
         return predictions
@@ -206,6 +218,103 @@ class ContinuousLearningModel:
                 }
         
         return summary
+    
+    def save_model(self) -> Dict[str, Any]:
+        """
+        Save model state for persistence
+        River models can be pickled directly
+        """
+        try:
+            import pickle
+            
+            # Serialize the models
+            serialized_models = {}
+            for name, model in self.models.items():
+                try:
+                    serialized_models[name] = pickle.dumps(model)
+                except Exception as e:
+                    logger.warning(f"Could not serialize model {name}: {e}")
+            
+            # Save other components
+            model_state = {
+                'room_id': self.room_id,
+                'serialized_models': serialized_models,
+                'model_performance': {
+                    name: {
+                        'n_samples': metric.n,
+                        'value': metric.get() if metric.n > 0 else 0.0
+                    }
+                    for name, metric in self.model_performance.items()
+                },
+                'meta_learner_state': self.meta_learner.get_state(),
+                'preprocessor_state': pickle.dumps(self.preprocessor)
+            }
+            
+            return model_state
+            
+        except Exception as e:
+            logger.error(f"Error saving model for {self.room_id}: {e}")
+            return {}
+    
+    def load_model(self, model_state: Dict[str, Any]):
+        """
+        Load model state from persistence
+        """
+        try:
+            import pickle
+            
+            # Restore room_id
+            self.room_id = model_state.get('room_id', self.room_id)
+            
+            # Restore serialized models
+            serialized_models = model_state.get('serialized_models', {})
+            for name, serialized_model in serialized_models.items():
+                try:
+                    self.models[name] = pickle.loads(serialized_model)
+                except Exception as e:
+                    logger.warning(f"Could not deserialize model {name}: {e}")
+            
+            # Restore performance metrics
+            performance_data = model_state.get('model_performance', {})
+            for name, perf_data in performance_data.items():
+                if name in self.model_performance:
+                    # Reconstruct metric with saved data
+                    metric = self.model_performance[name]
+                    # Note: River metrics don't have easy restoration, so we'll reinitialize
+                    metric._window = []
+                    metric.n = perf_data.get('n_samples', 0)
+            
+            # Restore meta-learner
+            meta_learner_state = model_state.get('meta_learner_state', {})
+            if meta_learner_state:
+                self.meta_learner.load_state(meta_learner_state)
+            
+            # Restore preprocessor
+            preprocessor_state = model_state.get('preprocessor_state')
+            if preprocessor_state:
+                self.preprocessor = pickle.loads(preprocessor_state)
+            
+            logger.info(f"Successfully loaded model for {self.room_id}")
+            
+        except Exception as e:
+            logger.error(f"Error loading model for {self.room_id}: {e}")
+            # If loading fails, keep the initialized models
+    
+    def get_model_summary(self) -> Dict[str, Any]:
+        """Get summary of model state"""
+        return {
+            'room_id': self.room_id,
+            'models': list(self.models.keys()),
+            'performance': {
+                name: {
+                    'samples': metric.n,
+                    'score': metric.get() if metric.n > 0 else 0.0
+                }
+                for name, metric in self.model_performance.items()
+            },
+            'meta_learner_weights': self.meta_learner.get_current_weights(),
+            'preprocessor_features': getattr(self.preprocessor, 'n_features_in_', 0)
+        }
 
 
 class MetaLearner:
@@ -261,6 +370,51 @@ class MetaLearner:
             equal_weight = 1.0 / len(predictions) if predictions else 1.0
             weights = {name: equal_weight for name in predictions.keys()}
         
+        return weights
+    
+    def get_state(self) -> Dict[str, Any]:
+        """Get serializable state for persistence"""
+        return {
+            'model_scores': {
+                name: {'n': score.n, 'value': score.get() if score.n > 0 else 0.0}
+                for name, score in self.model_scores.items()
+            },
+            'context_performance': {
+                context: {
+                    model: {'n': score.n, 'value': score.get() if score.n > 0 else 0.0}
+                    for model, score in models.items()
+                }
+                for context, models in self.context_performance.items()
+            }
+        }
+    
+    def load_state(self, state: Dict[str, Any]):
+        """Load state from persistence"""
+        try:
+            # Restore model scores
+            model_scores_data = state.get('model_scores', {})
+            for name, score_data in model_scores_data.items():
+                # Reinitialize the stats object
+                self.model_scores[name] = stats.Mean()
+                # Note: River stats don't have easy restoration, so we'll start fresh
+                
+            # Restore context performance
+            context_data = state.get('context_performance', {})
+            for context, models in context_data.items():
+                for model, score_data in models.items():
+                    self.context_performance[context][model] = stats.Mean()
+                    
+        except Exception as e:
+            logger.error(f"Error loading meta-learner state: {e}")
+    
+    def get_current_weights(self) -> Dict[str, float]:
+        """Get current model weights for monitoring"""
+        weights = {}
+        for name, score in self.model_scores.items():
+            if score.n > 0:
+                weights[name] = score.get()
+            else:
+                weights[name] = 0.5
         return weights
 
 

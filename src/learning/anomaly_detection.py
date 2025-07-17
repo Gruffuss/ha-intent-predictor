@@ -9,7 +9,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import numpy as np
 from river import stats
-from sklearn.cluster import DBSCAN
 
 logger = logging.getLogger(__name__)
 
@@ -402,14 +401,23 @@ class IncrementalDBSCAN:
         
         # Perform clustering if we have enough points
         if len(self.data_points) >= self.min_samples:
-            # Use regular DBSCAN for simplicity
+            # Use simple outlier detection instead of DBSCAN
             try:
-                X = np.array(self.data_points).reshape(-1, 1)
-                clustering = DBSCAN(eps=self.eps, min_samples=self.min_samples)
-                labels = clustering.fit_predict(X)
+                # Simple approach: check if last point is within range of recent points
+                recent_points = self.data_points[-10:]  # Last 10 points
+                if len(recent_points) < 2:
+                    return -1
                 
-                # Return label for the last point
-                return labels[-1] if len(labels) > 0 else -1
+                mean_val = np.mean(recent_points)
+                std_val = np.std(recent_points)
+                
+                # Check if new point is outlier
+                last_point = new_points[-1]
+                if std_val > 0:
+                    z_score = abs(last_point - mean_val) / std_val
+                    return -1 if z_score > 2.0 else 0
+                
+                return 0
                 
             except Exception as e:
                 logger.warning(f"Clustering error: {e}")

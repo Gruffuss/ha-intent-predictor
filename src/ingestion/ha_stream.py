@@ -12,6 +12,7 @@ import aiohttp
 import websockets
 from dataclasses import dataclass
 from kafka import KafkaProducer
+from aiokafka import AIOKafkaProducer
 import websocket
 
 logger = logging.getLogger(__name__)
@@ -66,14 +67,17 @@ class HADataStream:
     async def initialize(self):
         """Initialize Kafka producer and connections"""
         try:
-            # Initialize Kafka producer
-            self.kafka_producer = KafkaProducer(
+            # Initialize async Kafka producer
+            self.kafka_producer = AIOKafkaProducer(
                 bootstrap_servers=self.kafka_config['bootstrap_servers'],
                 value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8'),
                 **self.kafka_config.get('producer', {})
             )
             
-            logger.info("Kafka producer initialized successfully")
+            # Start the producer
+            await self.kafka_producer.start()
+            
+            logger.info("Async Kafka producer initialized successfully")
             
         except Exception as e:
             logger.error(f"Failed to initialize Kafka producer: {e}")
@@ -198,7 +202,7 @@ class HADataStream:
             # Use room as partition key for locality
             partition_key = enriched_event.room.encode('utf-8') if enriched_event.room else None
             
-            self.kafka_producer.send(
+            await self.kafka_producer.send(
                 topic=topic,
                 key=partition_key,
                 value=event_dict
@@ -247,10 +251,10 @@ class HADataStream:
         """Shutdown Kafka producer and connections"""
         try:
             if self.kafka_producer:
-                self.kafka_producer.close()
-                logger.info("Kafka producer closed")
+                await self.kafka_producer.stop()
+                logger.info("Kafka producer stopped")
         except Exception as e:
-            logger.error(f"Error closing Kafka producer: {e}")
+            logger.error(f"Error stopping Kafka producer: {e}")
     
     async def _websocket_stream(self):
         """WebSocket connection for real-time events using websockets library"""

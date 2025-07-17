@@ -1,0 +1,58 @@
+[Unit]
+Description=HA Intent Predictor - Adaptive ML Occupancy Prediction System
+Documentation=https://github.com/your-org/ha-intent-predictor
+After=network.target postgresql.service redis.service
+Wants=network.target postgresql.service redis.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=ha-predictor
+Group=ha-predictor
+WorkingDirectory=/opt/ha-intent-predictor
+ExecStart=/opt/ha-intent-predictor/venv/bin/python main.py
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+
+# Environment variables
+Environment=PYTHONPATH=/opt/ha-intent-predictor
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Environment file for secrets
+EnvironmentFile=-/etc/ha-intent-predictor/environment
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ha-intent-predictor/logs /opt/ha-intent-predictor/models /opt/ha-intent-predictor/data
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryMax=8G
+CPUQuota=400%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ha-intent-predictor
+
+[Install]
+WantedBy=multi-user.target
