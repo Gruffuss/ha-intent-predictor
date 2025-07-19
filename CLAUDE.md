@@ -1,5 +1,13 @@
 # ML Occupancy Prediction System - Implementation Guide
 
+## ⚠️ CRITICAL DEVELOPMENT RULE
+
+**ALWAYS CHECK IF FILES/FEATURES ALREADY EXIST BEFORE CREATING ANYTHING NEW**
+- Use `find`, `ls`, `grep`, or `Read` tools to check existing files
+- Check repository structure before implementing
+- Avoid duplicating existing functionality
+- Build upon existing codebase, don't recreate
+
 ## 🚀 DEPLOYED SYSTEM ACCESS
 
 **Current Installation**: Container ID 200 on Proxmox, IP: `192.168.51.10`
