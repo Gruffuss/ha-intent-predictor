@@ -131,11 +131,14 @@ class HAIntentPredictorSystem:
         logger.info("Initializing adaptive learning components...")
         
         # Main prediction engine - learns without assumptions
-        self.components['predictor'] = AdaptiveOccupancyPredictor(
-            timeseries_db=self.components['timeseries_db'],
-            feature_store=self.components['feature_store'],
-            model_store=self.components['model_store']
-        )
+        predictor_config = {
+            'timeseries_db': self.components['timeseries_db'],
+            'feature_store': self.components['feature_store'],
+            'model_store': self.components['model_store'],
+            'cpu_limit': 80,
+            'memory_limit': 6000
+        }
+        self.components['predictor'] = AdaptiveOccupancyPredictor(predictor_config)
         await self.components['predictor'].initialize()
         
         # Drift detection for continuous adaptation
