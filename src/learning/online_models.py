@@ -21,11 +21,11 @@ class ContinuousLearningModel:
         
         # Ensemble of online learners as specified in CLAUDE.md
         self.models = {
-            'adaptive_random_forest': forest.AdaptiveRandomForestClassifier(
+            'adaptive_random_forest': forest.ARFClassifier(
                 n_models=10,
                 max_features="sqrt",
                 lambda_value=6,
-                grace_period=200
+                grace_period=10
             ),
             'hoeffding_tree': tree.HoeffdingTreeClassifier(
                 grace_period=10,

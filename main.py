@@ -65,6 +65,19 @@ class HAIntentPredictorSystem:
         logger.info(f"Received signal {signum}, initiating shutdown...")
         asyncio.create_task(self.shutdown())
     
+    def _build_db_connection_string(self):
+        """Build PostgreSQL connection string from config"""
+        db_config = self.config.get('database.timescale')
+        return f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+    
+    def _build_redis_url(self):
+        """Build Redis connection URL from config"""
+        redis_config = self.config.get('redis')
+        if redis_config.get('password'):
+            return f"redis://:{redis_config['password']}@{redis_config['host']}:{redis_config['port']}"
+        else:
+            return f"redis://{redis_config['host']}:{redis_config['port']}"
+    
     async def initialize(self):
         """Initialize all system components"""
         logger.info("Initializing HA Intent Predictor system...")
