@@ -682,32 +682,8 @@ function install_docker() {
         exit 1
     fi
     
-    # Fix AppArmor issues for LXC containers
-    msg_progress "Configuring Docker for LXC environment..."
-    pct exec "$CTID" -- bash -c "
-        # Create Docker daemon configuration
-        mkdir -p /etc/docker
-        cat > /etc/docker/daemon.json << 'EOF'
-{
-    \"storage-driver\": \"overlay2\",
-    \"log-driver\": \"json-file\",
-    \"log-opts\": {
-        \"max-size\": \"10m\",
-        \"max-file\": \"3\"
-    },
-    \"live-restore\": true,
-    \"userland-proxy\": false,
-    \"no-new-privileges\": false
-}
-EOF
-        
-        # Disable AppArmor for Docker in LXC
-        systemctl stop docker
-        aa-remove-unknown
-        systemctl start docker
-    " &>/dev/null || true
-    
-    msg_ok "Docker configured for LXC environment"
+    # Docker should work normally in LXC with proper features
+    msg_ok "Docker installation completed"
     
     # Test Docker
     test_and_report \
@@ -810,56 +786,16 @@ EOF
     
     msg_ok "Docker Compose configuration created"
     
-    # Fix AppArmor issues before starting Docker Compose
-    msg_progress "Configuring Docker for LXC environment..."
+    # Docker should work normally in LXC with nesting=1,keyctl=1
+    msg_progress "Verifying Docker is ready..."
     pct exec "$CTID" -- bash -c "
-        echo '[DEBUG] Stopping Docker service...'
-        systemctl stop docker || true
-        
-        echo '[DEBUG] Completely disabling AppArmor for Docker...'
-        # Remove all AppArmor Docker profiles
-        find /var/lib/docker -name 'docker-default*' -delete 2>/dev/null || true
-        aa-remove-unknown 2>/dev/null || true
-        
-        # Disable AppArmor entirely for this LXC container
-        systemctl stop apparmor 2>/dev/null || true
-        systemctl disable apparmor 2>/dev/null || true
-        
-        # Prevent AppArmor from starting
-        echo 'manual' > /etc/init/apparmor.override 2>/dev/null || true
-        
-        # Remove AppArmor profiles directory to prevent regeneration
-        mv /etc/apparmor.d /etc/apparmor.d.disabled 2>/dev/null || true
-        
-        echo '[DEBUG] Creating Docker daemon configuration...'
-        # Create valid Docker daemon config for LXC
-        mkdir -p /etc/docker
-        cat > /etc/docker/daemon.json << 'EOF'
-{
-    \"storage-driver\": \"overlay2\",
-    \"log-driver\": \"json-file\",
-    \"log-opts\": {
-        \"max-size\": \"10m\",
-        \"max-file\": \"3\"
-    },
-    \"live-restore\": false,
-    \"userland-proxy\": false
-}
-EOF
-        
-        echo '[DEBUG] Starting Docker service...'
-        systemctl start docker
-        
-        echo '[DEBUG] Waiting for Docker to be ready...'
-        sleep 10
-        
         echo '[DEBUG] Checking Docker status...'
         if systemctl is-active docker >/dev/null 2>&1; then
             echo '[DEBUG] Docker service is active'
         else
-            echo '[DEBUG] Docker service failed to start'
-            systemctl status docker --no-pager
-            exit 1
+            echo '[DEBUG] Docker service not active, starting...'
+            systemctl start docker
+            sleep 5
         fi
         
         echo '[DEBUG] Testing Docker daemon connection...'
