@@ -41,7 +41,10 @@ INTERACTIVE_MODE=true
 AUTO_CTID=false
 
 function header() {
-    clear
+    # Only clear if running in interactive terminal
+    if [ -t 0 ] && [ -t 1 ]; then
+        clear
+    fi
     echo -e "${BLUE}"
     echo "██╗  ██╗ █████╗     ██╗███╗   ██╗████████╗███████╗███╗   ██╗████████╗"
     echo "██║  ██║██╔══██╗    ██║████╗  ██║╚══██╔══╝██╔════╝████╗  ██║╚══██╔══╝"
