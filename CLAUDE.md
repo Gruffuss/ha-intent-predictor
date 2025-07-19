@@ -1,8 +1,14 @@
 # ML Occupancy Prediction System - Implementation Guide
 
-## ⚠️ CRITICAL DEVELOPMENT RULE
+## ⚠️ CRITICAL DEVELOPMENT RULES
 
-**ALWAYS CHECK IF FILES/FEATURES ALREADY EXIST BEFORE CREATING ANYTHING NEW**
+**1. NEVER MAKE CODE CHANGES WITHOUT EXPLICIT PERMISSION**
+- Always ask before modifying existing functions, classes, or parameters
+- Never simplify, alter, or "improve" code without user approval  
+- Only fix import errors and references when explicitly requested
+- Preserve all existing functionality and architecture
+
+**2. ALWAYS CHECK IF FILES/FEATURES ALREADY EXIST BEFORE CREATING ANYTHING NEW**
 - Use `find`, `ls`, `grep`, or `Read` tools to check existing files
 - Check repository structure before implementing
 - Avoid duplicating existing functionality
