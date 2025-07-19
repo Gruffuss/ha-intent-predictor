@@ -5,6 +5,7 @@ Implements the exact storage approach from CLAUDE.md
 
 import logging
 import asyncio
+import json
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import pandas as pd
@@ -182,8 +183,8 @@ class TimescaleDBManager:
                         'state': event['state'],
                         'room': event.get('room'),
                         'sensor_type': event.get('sensor_type'),
-                        'attributes': event.get('attributes', {}),
-                        'derived_features': event.get('derived', {})
+                        'attributes': json.dumps(event.get('attributes', {})),
+                        'derived_features': json.dumps(event.get('derived', {}))
                     }
                 )
                 await session.commit()
@@ -218,8 +219,8 @@ class TimescaleDBManager:
                         'uncertainty': prediction['uncertainty'],
                         'confidence': prediction['confidence'],
                         'model_name': prediction.get('model_name'),
-                        'features': prediction.get('features', {}),
-                        'metadata': prediction.get('metadata', {})
+                        'features': json.dumps(prediction.get('features', {})),
+                        'metadata': json.dumps(prediction.get('metadata', {}))
                     }
                 )
                 await session.commit()
