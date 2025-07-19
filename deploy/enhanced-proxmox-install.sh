@@ -22,7 +22,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Progress tracking
-TOTAL_STEPS=15
+TOTAL_STEPS=16
 CURRENT_STEP=0
 START_TIME=$(date +%s)
 
@@ -845,11 +845,11 @@ function setup_application() {
 function setup_docker_services() {
     step_header "Setting Up Docker Services"
     
-    msg_progress "Creating Docker Compose configuration..."
+    msg_progress "Creating complete Docker Compose configuration with Kafka..."
     pct exec "$CTID" -- bash -c "
         cd /opt/ha-intent-predictor
         
-        # Create docker-compose.yml (simplified version for demo)
+        # Create complete docker-compose.yml with full event streaming architecture
         cat > docker-compose.yml << 'EOF'
 services:
   postgres:
@@ -858,24 +858,196 @@ services:
     environment:
       POSTGRES_DB: ha_predictor
       POSTGRES_USER: ha_predictor
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-auto_generated_password}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-hapredictor_db_pass}
     ports:
       - \"5432:5432\"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
+    healthcheck:
+      test: [\"CMD-SHELL\", \"pg_isready -U ha_predictor\"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     
   redis:
     image: redis:7-alpine
     container_name: ha-predictor-redis
     ports:
       - \"6379:6379\"
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: [\"CMD\", \"redis-cli\", \"ping\"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: ha-predictor-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - \"2181:2181\"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    restart: unless-stopped
+    healthcheck:
+      test: [\"CMD\", \"nc\", \"-z\", \"localhost\", \"2181\"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: ha-predictor-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - \"9092:9092\"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+    healthcheck:
+      test: [\"CMD\", \"kafka-topics\", \"--bootstrap-server\", \"localhost:9092\", \"--list\"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_logs:
+
+networks:
+  default:
+    name: ha-predictor-network
 EOF
         
-        # Create .env file
-        echo \"POSTGRES_PASSWORD=\$(openssl rand -base64 32)\" > .env
+        # Create .env file with proper passwords
+        cat > .env << 'EOF'
+POSTGRES_PASSWORD=hapredictor_db_pass
+GRAFANA_PASSWORD=hapredictor_grafana_pass
+EOF
     "
     
-    msg_ok "Docker Compose configuration created"
+    msg_progress "Creating database initialization script..."
+    pct exec "$CTID" -- bash -c "
+        cd /opt/ha-intent-predictor
+        mkdir -p scripts
+        
+        # Create database schema initialization
+        cat > scripts/init.sql << 'EOF'
+-- Enable TimescaleDB extension (already enabled in the image)
+-- CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Create tables for HA Intent Predictor
+CREATE TABLE IF NOT EXISTS sensor_events (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    entity_id VARCHAR(255) NOT NULL,
+    state VARCHAR(50),
+    attributes JSONB,
+    room VARCHAR(100),
+    sensor_type VARCHAR(100),
+    zone_info JSONB,
+    source VARCHAR(50) DEFAULT 'home_assistant'
+);
+
+CREATE TABLE IF NOT EXISTS predictions (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    room VARCHAR(100) NOT NULL,
+    horizon_minutes INTEGER NOT NULL,
+    probability FLOAT NOT NULL,
+    uncertainty FLOAT NOT NULL,
+    model_info JSONB,
+    features JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS model_performance (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    room VARCHAR(100) NOT NULL,
+    model_name VARCHAR(100) NOT NULL,
+    metric_name VARCHAR(100) NOT NULL,
+    metric_value FLOAT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS room_states (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    room VARCHAR(100) NOT NULL,
+    occupied BOOLEAN NOT NULL,
+    confidence FLOAT,
+    source VARCHAR(50) DEFAULT 'inference',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create hypertables for time-series data
+SELECT create_hypertable('sensor_events', 'timestamp', if_not_exists => TRUE);
+SELECT create_hypertable('predictions', 'timestamp', if_not_exists => TRUE);
+SELECT create_hypertable('model_performance', 'timestamp', if_not_exists => TRUE);
+SELECT create_hypertable('room_states', 'timestamp', if_not_exists => TRUE);
+
+-- Create indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_sensor_events_entity_time ON sensor_events (entity_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_events_room_time ON sensor_events (room, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_events_type_time ON sensor_events (sensor_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_room_time ON predictions (room, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_horizon ON predictions (horizon_minutes, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_model_performance_room_model ON model_performance (room, model_name, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_room_states_room_time ON room_states (room, timestamp DESC);
+
+-- Create some useful views
+CREATE OR REPLACE VIEW latest_predictions AS
+SELECT DISTINCT ON (room, horizon_minutes) 
+    room, horizon_minutes, probability, uncertainty, timestamp, model_info
+FROM predictions 
+ORDER BY room, horizon_minutes, timestamp DESC;
+
+CREATE OR REPLACE VIEW room_occupancy_summary AS
+SELECT 
+    room,
+    COUNT(*) as total_events,
+    COUNT(*) FILTER (WHERE occupied = true) as occupied_events,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE occupied = true) / COUNT(*), 2) as occupancy_rate,
+    MAX(timestamp) as last_updated
+FROM room_states 
+WHERE timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY room;
+
+-- Insert some test data to verify everything is working
+INSERT INTO sensor_events (timestamp, entity_id, state, room, sensor_type) VALUES
+(NOW(), 'binary_sensor.test_presence', 'on', 'test_room', 'presence'),
+(NOW() - INTERVAL '1 minute', 'binary_sensor.test_presence', 'off', 'test_room', 'presence');
+
+COMMIT;
+EOF
+    "
+    
+    msg_ok "Docker Compose configuration and database schema created"
     
     # Docker should work normally in LXC with nesting=1,keyctl=1
     msg_progress "Verifying Docker is ready..."
@@ -1010,6 +1182,20 @@ EOF
         "Redis connectivity" \
         "Redis is responding" \
         "Redis is not responding"
+    
+    # Test Kafka connectivity
+    test_and_report \
+        "pct exec $CTID -- docker exec ha-predictor-kafka kafka-topics --bootstrap-server localhost:9092 --list" \
+        "Kafka connectivity" \
+        "Kafka is responding" \
+        "Kafka is not responding"
+    
+    # Test Zookeeper connectivity  
+    test_and_report \
+        "pct exec $CTID -- docker exec ha-predictor-zookeeper nc -z localhost 2181" \
+        "Zookeeper connectivity" \
+        "Zookeeper is responding" \
+        "Zookeeper is not responding"
 }
 
 function install_python_dependencies() {
@@ -1104,6 +1290,234 @@ EOF
         "Service configuration failed"
 }
 
+function create_monitoring_script() {
+    step_header "Creating Remote Monitoring Script"
+    
+    msg_progress "Creating comprehensive monitoring script..."
+    pct exec "$CTID" -- bash -c "
+        cd /opt/ha-intent-predictor
+        mkdir -p scripts
+        
+        # Create monitoring script that outputs status for remote access
+        cat > scripts/remote-monitor.sh << 'EOF'
+#!/bin/bash
+
+# Remote Monitoring Script for HA Intent Predictor
+# This script outputs status to files that can be read remotely
+
+MONITOR_FILE=\"/tmp/ha-predictor-status.json\"
+MONITOR_LOG=\"/tmp/ha-predictor-monitor.log\"
+
+# Function to get container status
+get_container_status() {
+    local container_name=\"\$1\"
+    if docker ps --format \"{{.Names}}\" | grep -q \"^\${container_name}\$\"; then
+        echo \"running\"
+    elif docker ps -a --format \"{{.Names}}\" | grep -q \"^\${container_name}\$\"; then
+        echo \"stopped\"
+    else
+        echo \"missing\"
+    fi
+}
+
+# Function to test service health
+test_service_health() {
+    local service=\"\$1\"
+    case \$service in
+        postgres)
+            if docker exec ha-predictor-postgres pg_isready -U ha_predictor >/dev/null 2>&1; then
+                echo \"healthy\"
+            else
+                echo \"unhealthy\"
+            fi
+            ;;
+        redis)
+            if docker exec ha-predictor-redis redis-cli ping 2>/dev/null | grep -q \"PONG\"; then
+                echo \"healthy\"
+            else
+                echo \"unhealthy\"
+            fi
+            ;;
+        kafka)
+            if docker exec ha-predictor-kafka kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+                echo \"healthy\"
+            else
+                echo \"unhealthy\"
+            fi
+            ;;
+        zookeeper)
+            if docker exec ha-predictor-zookeeper nc -z localhost 2181 >/dev/null 2>&1; then
+                echo \"healthy\"
+            else
+                echo \"unhealthy\"
+            fi
+            ;;
+        *)
+            echo \"unknown\"
+            ;;
+    esac
+}
+
+# Function to get resource usage
+get_resource_usage() {
+    # Get container resource usage
+    docker stats --no-stream --format \"{{.Container}},{{.CPUPerc}},{{.MemUsage}},{{.MemPerc}}\" 2>/dev/null || echo \"no_data\"
+}
+
+# Function to get system info
+get_system_info() {
+    echo \"{\"
+    echo \"  \\\"timestamp\\\": \\\"\$(date -Iseconds)\\\",\"
+    echo \"  \\\"uptime\\\": \\\"\$(uptime -p)\\\",\"
+    echo \"  \\\"load_avg\\\": \\\"\$(uptime | awk -F'load average:' '{print \$2}' | xargs)\\\",\"
+    echo \"  \\\"disk_usage\\\": \\\"\$(df -h / | awk 'NR==2 {print \$5}' | tr -d '%')\\\",\"
+    echo \"  \\\"memory_usage\\\": \\\"\$(free | awk 'NR==2{printf \\\"%.1f\\\", \$3*100/\$2}')\\\",\"
+    echo \"  \\\"containers\\\": {\"
+    echo \"    \\\"postgres\\\": {\"
+    echo \"      \\\"status\\\": \\\"\$(get_container_status ha-predictor-postgres)\\\",\"
+    echo \"      \\\"health\\\": \\\"\$(test_service_health postgres)\\\"\"
+    echo \"    },\"
+    echo \"    \\\"redis\\\": {\"
+    echo \"      \\\"status\\\": \\\"\$(get_container_status ha-predictor-redis)\\\",\"
+    echo \"      \\\"health\\\": \\\"\$(test_service_health redis)\\\"\"
+    echo \"    },\"
+    echo \"    \\\"kafka\\\": {\"
+    echo \"      \\\"status\\\": \\\"\$(get_container_status ha-predictor-kafka)\\\",\"
+    echo \"      \\\"health\\\": \\\"\$(test_service_health kafka)\\\"\"
+    echo \"    },\"
+    echo \"    \\\"zookeeper\\\": {\"
+    echo \"      \\\"status\\\": \\\"\$(get_container_status ha-predictor-zookeeper)\\\",\"
+    echo \"      \\\"health\\\": \\\"\$(test_service_health zookeeper)\\\"\"
+    echo \"    }\"
+    echo \"  },\"
+    echo \"  \\\"services\\\": {\"
+    echo \"    \\\"nginx\\\": \\\"\$(systemctl is-active nginx 2>/dev/null || echo inactive)\\\",\"
+    echo \"    \\\"ssh\\\": \\\"\$(systemctl is-active ssh 2>/dev/null || echo inactive)\\\",\"
+    echo \"    \\\"docker\\\": \\\"\$(systemctl is-active docker 2>/dev/null || echo inactive)\\\"\"
+    echo \"  },\"
+    echo \"  \\\"application\\\": {\"
+    echo \"    \\\"directory_exists\\\": \$([ -d /opt/ha-intent-predictor ] && echo true || echo false),\"
+    echo \"    \\\"venv_exists\\\": \$([ -d /opt/ha-intent-predictor/venv ] && echo true || echo false),\"
+    echo \"    \\\"compose_file_exists\\\": \$([ -f /opt/ha-intent-predictor/docker-compose.yml ] && echo true || echo false)\"
+    echo \"  }\"
+    echo \"}\"
+}
+
+# Function to get recent logs
+get_recent_logs() {
+    echo \"=== RECENT DOCKER LOGS ===\" >> \"\$MONITOR_LOG\"
+    echo \"Timestamp: \$(date)\" >> \"\$MONITOR_LOG\"
+    echo \"\" >> \"\$MONITOR_LOG\"
+    
+    for container in ha-predictor-postgres ha-predictor-redis ha-predictor-kafka ha-predictor-zookeeper; do
+        if docker ps -a --format \"{{.Names}}\" | grep -q \"^\${container}\$\"; then
+            echo \"--- \$container ---\" >> \"\$MONITOR_LOG\"
+            docker logs \"\$container\" --tail 10 --since 5m 2>&1 >> \"\$MONITOR_LOG\"
+            echo \"\" >> \"\$MONITOR_LOG\"
+        fi
+    done
+    
+    # Keep only last 1000 lines
+    tail -1000 \"\$MONITOR_LOG\" > \"\${MONITOR_LOG}.tmp\" && mv \"\${MONITOR_LOG}.tmp\" \"\$MONITOR_LOG\"
+}
+
+# Main monitoring function
+monitor_once() {
+    get_system_info > \"\$MONITOR_FILE\"
+    get_recent_logs
+    
+    # Also create a human-readable summary
+    cat > \"/tmp/ha-predictor-summary.txt\" << EOFSUM
+HA Intent Predictor Status Summary
+Generated: \$(date)
+
+=== CONTAINER STATUS ===
+PostgreSQL: \$(get_container_status ha-predictor-postgres) - \$(test_service_health postgres)
+Redis: \$(get_container_status ha-predictor-redis) - \$(test_service_health redis)  
+Kafka: \$(get_container_status ha-predictor-kafka) - \$(test_service_health kafka)
+Zookeeper: \$(get_container_status ha-predictor-zookeeper) - \$(test_service_health zookeeper)
+
+=== SYSTEM HEALTH ===
+Disk Usage: \$(df -h / | awk 'NR==2 {print \$5}')
+Memory Usage: \$(free | awk 'NR==2{printf \"%.1f%%\", \$3*100/\$2}')
+Load Average: \$(uptime | awk -F'load average:' '{print \$2}' | xargs)
+
+=== SERVICES ===
+Docker: \$(systemctl is-active docker 2>/dev/null || echo inactive)
+Nginx: \$(systemctl is-active nginx 2>/dev/null || echo inactive)
+SSH: \$(systemctl is-active ssh 2>/dev/null || echo inactive)
+
+=== QUICK TESTS ===
+PostgreSQL Connection: \$(docker exec ha-predictor-postgres pg_isready -U ha_predictor 2>/dev/null && echo \"OK\" || echo \"FAIL\")
+Redis Connection: \$(docker exec ha-predictor-redis redis-cli ping 2>/dev/null || echo \"FAIL\")
+Kafka Connection: \$(docker exec ha-predictor-kafka kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1 && echo \"OK\" || echo \"FAIL\")
+Web Server: \$(curl -s http://localhost/health >/dev/null && echo \"OK\" || echo \"FAIL\")
+
+=== DOCKER COMPOSE STATUS ===
+\$(cd /opt/ha-intent-predictor && docker compose ps 2>/dev/null || echo \"Docker compose not available\")
+EOFSUM
+}
+
+# Continuous monitoring mode
+monitor_continuous() {
+    echo \"Starting continuous monitoring... (Ctrl+C to stop)\"
+    echo \"Monitor files: \$MONITOR_FILE and /tmp/ha-predictor-summary.txt\"
+    
+    while true; do
+        monitor_once
+        sleep 30
+    done
+}
+
+# Handle command line arguments
+case \"\${1:-once}\" in
+    \"continuous\"|\"loop\"|\"watch\")
+        monitor_continuous
+        ;;
+    \"once\"|\"\")
+        monitor_once
+        echo \"Status written to: \$MONITOR_FILE\"
+        echo \"Summary written to: /tmp/ha-predictor-summary.txt\"
+        echo \"Logs written to: \$MONITOR_LOG\"
+        ;;
+    \"show\"|\"cat\"|\"view\")
+        if [ -f \"/tmp/ha-predictor-summary.txt\" ]; then
+            cat /tmp/ha-predictor-summary.txt
+        else
+            echo \"No status file found. Run monitor first.\"
+        fi
+        ;;
+    \"json\")
+        if [ -f \"\$MONITOR_FILE\" ]; then
+            cat \"\$MONITOR_FILE\"
+        else
+            echo \"No JSON status file found. Run monitor first.\"
+        fi
+        ;;
+    *)
+        echo \"Usage: \$0 [once|continuous|show|json]\"
+        echo \"  once       - Generate status once (default)\"
+        echo \"  continuous - Monitor continuously every 30s\"
+        echo \"  show       - Show latest human-readable status\"
+        echo \"  json       - Show latest JSON status\"
+        ;;
+esac
+EOF
+        
+        # Make monitoring script executable
+        chmod +x scripts/remote-monitor.sh
+    "
+    
+    msg_ok "Remote monitoring script created"
+    
+    # Test monitoring script
+    test_and_report \
+        "pct exec $CTID -- test -x /opt/ha-intent-predictor/scripts/remote-monitor.sh" \
+        "Monitoring script" \
+        "Monitoring script is executable" \
+        "Monitoring script failed to create"
+}
+
 function setup_nginx() {
     step_header "Setting Up Web Server"
     
@@ -1151,7 +1565,7 @@ function run_validation_tests() {
     msg_progress "Testing system integration..."
     
     local tests_passed=0
-    local total_tests=8
+    local total_tests=10
     
     # Test 1: Container networking
     if pct exec "$CTID" -- ping -c 1 8.8.8.8 &>/dev/null; then
@@ -1185,7 +1599,23 @@ function run_validation_tests() {
         msg_error "✗ Redis not responding"
     fi
     
-    # Test 5: Python environment
+    # Test 5: Kafka connectivity
+    if pct exec "$CTID" -- docker exec ha-predictor-kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+        msg_ok "✓ Kafka responding"
+        ((tests_passed++))
+    else
+        msg_error "✗ Kafka not responding"
+    fi
+    
+    # Test 6: Zookeeper connectivity
+    if pct exec "$CTID" -- docker exec ha-predictor-zookeeper nc -z localhost 2181 &>/dev/null; then
+        msg_ok "✓ Zookeeper responding"
+        ((tests_passed++))
+    else
+        msg_error "✗ Zookeeper not responding"
+    fi
+    
+    # Test 7: Python environment
     if pct exec "$CTID" -- test -d /opt/ha-intent-predictor/venv; then
         msg_ok "✓ Python virtual environment exists"
         ((tests_passed++))
@@ -1193,7 +1623,7 @@ function run_validation_tests() {
         msg_error "✗ Python virtual environment missing"
     fi
     
-    # Test 6: Python dependencies
+    # Test 8: Python dependencies
     if pct exec "$CTID" -- /opt/ha-intent-predictor/venv/bin/python -c "import numpy, pandas" &>/dev/null; then
         msg_ok "✓ Python dependencies importable"
         ((tests_passed++))
@@ -1201,7 +1631,7 @@ function run_validation_tests() {
         msg_error "✗ Python dependencies not working"
     fi
     
-    # Test 7: Systemd service
+    # Test 9: Systemd service
     if pct exec "$CTID" -- systemctl is-enabled ha-intent-predictor.service &>/dev/null; then
         msg_ok "✓ Systemd service configured"
         ((tests_passed++))
@@ -1209,7 +1639,7 @@ function run_validation_tests() {
         msg_error "✗ Systemd service not configured"
     fi
     
-    # Test 8: Web server
+    # Test 10: Web server
     if pct exec "$CTID" -- curl -s http://localhost/health &>/dev/null; then
         msg_ok "✓ Web server responding"
         ((tests_passed++))
@@ -1267,6 +1697,18 @@ function show_completion_info() {
         echo -e "   • Redis: ${RED}Stopped${NC}"
     fi
     
+    if pct exec "$CTID" -- docker ps | grep -q ha-predictor-kafka; then
+        echo -e "   • Kafka: ${GREEN}Running${NC}"
+    else
+        echo -e "   • Kafka: ${RED}Stopped${NC}"
+    fi
+    
+    if pct exec "$CTID" -- docker ps | grep -q ha-predictor-zookeeper; then
+        echo -e "   • Zookeeper: ${GREEN}Running${NC}"
+    else
+        echo -e "   • Zookeeper: ${RED}Stopped${NC}"
+    fi
+    
     if pct exec "$CTID" -- systemctl is-active nginx &>/dev/null; then
         echo -e "   • Nginx: ${GREEN}Running${NC}"
     else
@@ -1279,6 +1721,7 @@ function show_completion_info() {
     echo -e "   • View logs: ${CYAN}pct exec $CTID -- journalctl -f${NC}"
     echo -e "   • Check services: ${CYAN}pct exec $CTID -- docker compose ps${NC}"
     echo -e "   • Restart services: ${CYAN}pct exec $CTID -- systemctl restart ha-intent-predictor.service${NC}"
+    echo -e "   • Monitor remotely: ${CYAN}pct exec $CTID -- /opt/ha-intent-predictor/scripts/remote-monitor.sh${NC}"
     echo
     echo -e "${BLUE}📝 Next Steps:${NC}"
     echo -e "   1. Complete the application development"
@@ -1441,6 +1884,8 @@ function main() {
     setup_systemd_services
     echo "[DEBUG] Setting up nginx..."
     setup_nginx
+    echo "[DEBUG] Creating monitoring script..."
+    create_monitoring_script
     echo "[DEBUG] Running validation tests..."
     run_validation_tests
     echo "[DEBUG] Showing completion info..."
@@ -1512,11 +1957,18 @@ function show_completion_info() {
     echo "  Restart: pct exec $CTID -- systemctl restart ha-intent-predictor.service"
     echo "  Status: pct exec $CTID -- systemctl status ha-intent-predictor.service"
     echo "  Enter container: pct enter $CTID"
+    echo "  Remote monitor: pct exec $CTID -- /opt/ha-intent-predictor/scripts/remote-monitor.sh"
+    echo
+    echo "=== SERVICE ACCESS ==="
+    echo "  PostgreSQL: $container_ip:5432 (user: ha_predictor, db: ha_predictor)"
+    echo "  Redis: $container_ip:6379"
+    echo "  Kafka: $container_ip:9092"
+    echo "  Zookeeper: $container_ip:2181"
     echo
     echo "=== NEXT STEPS ==="
     echo "  1. Login via SSH: ssh root@$container_ip (password: $DEFAULT_PASSWORD)"
     echo "  2. Configure Home Assistant connection in /opt/ha-intent-predictor/config/"
-    echo "  3. Monitor the learning process in Grafana at http://$container_ip:3000"
+    echo "  3. Monitor with: /opt/ha-intent-predictor/scripts/remote-monitor.sh"
     echo "  4. Add prediction entities to your Home Assistant automations"
     echo
     msg_ok "Installation completed successfully!"
