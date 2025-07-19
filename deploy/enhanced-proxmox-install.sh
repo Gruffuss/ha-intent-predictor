@@ -228,66 +228,45 @@ function cleanup() {
 }
 
 function detect_ubuntu_template() {
-    msg_progress "Detecting available Ubuntu template..."
+    msg_progress "Detecting latest available Ubuntu template..."
     
-    # First, check local storage for available templates
+    # Check local storage for Ubuntu 22.04 templates (prefer latest version)
     local available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
-        msg_ok "Found local template: $TEMPLATE"
+        msg_ok "Found latest Ubuntu 22.04 template: $TEMPLATE"
         return 0
     fi
     
-    # If not found locally, check available downloads
-    msg_progress "Checking available Ubuntu templates for download..."
-    available_templates=$(pveam available --section system 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    # If Ubuntu 22.04 not found, look for any Ubuntu LTS template
+    msg_progress "Ubuntu 22.04 not found, searching for any Ubuntu LTS template..."
+    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-[0-9]+\.[0-9]+.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
-        msg_info "Will download template: $TEMPLATE"
-        
-        # Download the template
-        msg_progress "Downloading Ubuntu template..."
-        if pveam download local "$TEMPLATE" 2>/dev/null; then
-            msg_ok "Template downloaded successfully: $TEMPLATE"
-        else
-            msg_error "Failed to download template: $TEMPLATE"
-            exit 1
-        fi
+        msg_ok "Found latest Ubuntu template: $TEMPLATE"
         return 0
     fi
     
-    # If still not found, try a broader search
+    # Last resort - any Ubuntu template
     msg_progress "Searching for any available Ubuntu template..."
-    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
-        msg_warn "Using alternative Ubuntu template: $TEMPLATE"
+        msg_warn "Using available Ubuntu template: $TEMPLATE"
         return 0
     fi
     
-    # Last resort - check for any Ubuntu template available for download
-    available_templates=$(pveam available --section system 2>/dev/null | grep -E "ubuntu.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
-    
-    if [ -n "$available_templates" ]; then
-        TEMPLATE="$available_templates"
-        msg_info "Will download alternative Ubuntu template: $TEMPLATE"
-        
-        if pveam download local "$TEMPLATE" 2>/dev/null; then
-            msg_ok "Template downloaded successfully: $TEMPLATE"
-        else
-            msg_error "Failed to download template: $TEMPLATE"
-            exit 1
-        fi
-        return 0
-    fi
-    
-    # No templates found
-    msg_error "No Ubuntu templates found. Please download one manually:"
+    # No Ubuntu templates found locally
+    msg_error "No Ubuntu templates found in local storage."
+    msg_error "Available templates:"
+    pveam list local 2>/dev/null | grep -E "\.tar\.zst" | awk '{print "  - " $2}'
+    msg_error ""
+    msg_error "Please download an Ubuntu template first:"
     msg_error "pveam available --section system | grep ubuntu"
-    msg_error "pveam download local <template-name>"
+    msg_error "pveam download local <ubuntu-template-name>"
     exit 1
 }
 
