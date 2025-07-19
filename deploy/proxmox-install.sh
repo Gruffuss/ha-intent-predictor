@@ -134,7 +134,7 @@ function detect_ubuntu_template() {
     msg_info "Detecting latest available Ubuntu template..."
     
     # Check local storage for Ubuntu 22.04 templates (prefer latest version)
-    local available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    local available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
@@ -144,7 +144,7 @@ function detect_ubuntu_template() {
     
     # If Ubuntu 22.04 not found, look for any Ubuntu LTS template
     msg_info "Ubuntu 22.04 not found, searching for any Ubuntu LTS template..."
-    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-[0-9]+\.[0-9]+.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-[0-9]+\.[0-9]+.*standard.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
@@ -154,7 +154,7 @@ function detect_ubuntu_template() {
     
     # Last resort - any Ubuntu template
     msg_info "Searching for any available Ubuntu template..."
-    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
     
     if [ -n "$available_templates" ]; then
         TEMPLATE="$available_templates"
@@ -165,7 +165,7 @@ function detect_ubuntu_template() {
     # No Ubuntu templates found locally
     msg_error "No Ubuntu templates found in local storage."
     msg_error "Available templates:"
-    pveam list local 2>/dev/null | grep -E "\.tar\.zst" | awk '{print "  - " $2}'
+    pveam list local 2>/dev/null | grep -E "\.tar\.zst" | awk '{print "  - " $1}'
     msg_error ""
     msg_error "Please download an Ubuntu template first:"
     msg_error "pveam available --section system | grep ubuntu"
