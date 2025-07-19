@@ -259,34 +259,50 @@ function cleanup() {
 function detect_ubuntu_template() {
     msg_progress "Detecting latest available Ubuntu template..."
     
+    echo "[DEBUG] Listing all available templates..."
+    pveam list local 2>/dev/null | head -10 || echo "[DEBUG] No templates found or pveam command failed"
+    
     # Check local storage for Ubuntu 22.04 templates (prefer latest version)
     local available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
     
-    if [ -n "$available_templates" ]; then
+    echo "[DEBUG] Ubuntu 22.04 template candidate: '$available_templates'"
+    echo "[DEBUG] Template length: ${#available_templates} characters"
+    
+    if [ -n "$available_templates" ] && [ ${#available_templates} -lt 240 ]; then
         TEMPLATE="$available_templates"
         msg_ok "Found latest Ubuntu 22.04 template: $TEMPLATE"
         return 0
+    elif [ -n "$available_templates" ]; then
+        msg_warn "Template name too long (${#available_templates} chars): $available_templates"
     fi
     
     # If Ubuntu 22.04 not found, look for any Ubuntu LTS template
     msg_progress "Ubuntu 22.04 not found, searching for any Ubuntu LTS template..."
     available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-[0-9]+\.[0-9]+.*standard.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
     
-    if [ -n "$available_templates" ]; then
+    echo "[DEBUG] Ubuntu LTS template candidate: '$available_templates'"
+    echo "[DEBUG] Template length: ${#available_templates} characters"
+    
+    if [ -n "$available_templates" ] && [ ${#available_templates} -lt 240 ]; then
         TEMPLATE="$available_templates"
         msg_ok "Found latest Ubuntu template: $TEMPLATE"
         return 0
+    elif [ -n "$available_templates" ]; then
+        msg_warn "Template name too long (${#available_templates} chars): $available_templates"
     fi
     
-    # Last resort - any Ubuntu template
-    msg_progress "Searching for any available Ubuntu template..."
-    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*amd64\.tar\.zst" | awk '{print $1}' | sort -V | tail -1)
+    # Last resort - any Ubuntu template with shorter name
+    msg_progress "Searching for any available Ubuntu template with reasonable name length..."
     
-    if [ -n "$available_templates" ]; then
-        TEMPLATE="$available_templates"
-        msg_warn "Using available Ubuntu template: $TEMPLATE"
-        return 0
-    fi
+    # Get all Ubuntu templates and filter by length
+    while IFS= read -r template; do
+        echo "[DEBUG] Checking template: '$template' (${#template} chars)"
+        if [ ${#template} -lt 240 ]; then
+            TEMPLATE="$template"
+            msg_warn "Using available Ubuntu template: $TEMPLATE"
+            return 0
+        fi
+    done < <(pveam list local 2>/dev/null | grep -E "ubuntu.*amd64\.tar\.zst" | awk '{print $1}' | sort -V)
     
     # No Ubuntu templates found locally
     msg_error "No Ubuntu templates found in local storage."
