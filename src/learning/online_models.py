@@ -6,7 +6,7 @@ Implements the adaptive prediction system from CLAUDE.md
 import logging
 from collections import defaultdict
 from typing import Dict, Any, Optional
-from river import ensemble, tree, metrics, preprocessing
+from river import ensemble, tree, metrics, preprocessing, forest
 from river import linear_model
 from river import stats
 
@@ -21,11 +21,11 @@ class ContinuousLearningModel:
         
         # Ensemble of online learners as specified in CLAUDE.md
         self.models = {
-            'gradient_boost': ensemble.AdaptiveRandomForestClassifier(
+            'adaptive_random_forest': forest.AdaptiveRandomForestClassifier(
                 n_models=10,
                 max_features="sqrt",
                 lambda_value=6,
-                grace_period=10
+                grace_period=200
             ),
             'hoeffding_tree': tree.HoeffdingTreeClassifier(
                 grace_period=10,
