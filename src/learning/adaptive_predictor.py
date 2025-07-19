@@ -686,6 +686,20 @@ class AdaptiveOccupancyPredictor:
                 'predictions_made': 0,
                 'last_training': None
             }
+    
+    async def get_active_rooms(self) -> List[str]:
+        """
+        Get list of active rooms for drift monitoring
+        Simple wrapper around self.rooms for compatibility
+        """
+        return self.rooms
+    
+    async def get_room_performance(self, room_id: str) -> Dict[str, Any]:
+        """
+        Get room performance data for drift detection
+        Wrapper around existing get_room_metrics method
+        """
+        return await self.get_room_metrics(room_id)
 
 
 class PatternDiscoveryModel:

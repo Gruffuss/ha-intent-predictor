@@ -320,6 +320,26 @@ class PerformanceMonitor:
             self.adaptation_triggers.clear()
             
             logger.info("Reset all performance metrics")
+    
+    async def get_room_performance(self, room_id: str) -> Dict[str, Any]:
+        """
+        Get room performance data for drift detection compatibility
+        Wrapper around existing get_model_health_score method
+        """
+        health_data = self.get_model_health_score(room_id)
+        
+        # Extract accuracy from room metrics
+        accuracy = 0.0
+        if room_id in self.room_metrics and 'accuracy' in self.room_metrics[room_id]:
+            accuracy = self.room_metrics[room_id]['accuracy'].get_current_value()
+        
+        return {
+            'accuracy': accuracy,
+            'health_score': health_data.get('health_score', 0.0),
+            'status': health_data.get('status', 'no_data'),
+            'false_positive_rate': self.room_metrics[room_id]['false_positive_rate'].get_current_value() if room_id in self.room_metrics else 0.0,
+            'confidence': self.room_metrics[room_id]['confidence'].get_current_value() if room_id in self.room_metrics else 0.0
+        }
 
 
 class RunningWindowMetric:

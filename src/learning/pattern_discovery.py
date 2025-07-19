@@ -119,8 +119,9 @@ class PatternDiscovery:
             
             # Calculate chi-squared statistic
             chi_squared = sum(
-                (observed - expected_frequency) ** 2 / expected_frequency
+                (int(observed) - expected_frequency) ** 2 / expected_frequency
                 for observed in pattern_counts.values()
+                if isinstance(observed, (int, float)) or str(observed).isdigit()
             )
             
             # Convert to p-value (simplified)
