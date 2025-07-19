@@ -210,7 +210,8 @@ function check_requirements() {
     
     # Check available storage
     local available_storage=$(pvs --noheadings -o pv_free --units g 2>/dev/null | head -1 | tr -d ' G' || echo "0")
-    if (( $(echo "$available_storage < 50" | bc -l 2>/dev/null || echo "1") )); then
+    # Use bash arithmetic instead of bc to avoid hanging
+    if [ "${available_storage%.*}" -lt 50 ] 2>/dev/null; then
         msg_warn "Low storage space detected. Recommended: 50GB+ available"
     else
         msg_ok "Sufficient storage available (${available_storage}GB)"
