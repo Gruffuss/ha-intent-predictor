@@ -4,7 +4,7 @@ Dynamic Feature Computation - Implements the sophisticated feature discovery fro
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Set, Tuple
 from datetime import datetime, timedelta
 import numpy as np
 from river import stats
