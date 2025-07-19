@@ -816,10 +816,20 @@ EOF
         echo '[DEBUG] Stopping Docker service...'
         systemctl stop docker || true
         
-        echo '[DEBUG] Cleaning AppArmor profiles...'
+        echo '[DEBUG] Completely disabling AppArmor for Docker...'
         # Remove all AppArmor Docker profiles
         find /var/lib/docker -name 'docker-default*' -delete 2>/dev/null || true
         aa-remove-unknown 2>/dev/null || true
+        
+        # Disable AppArmor entirely for this LXC container
+        systemctl stop apparmor 2>/dev/null || true
+        systemctl disable apparmor 2>/dev/null || true
+        
+        # Prevent AppArmor from starting
+        echo 'manual' > /etc/init/apparmor.override 2>/dev/null || true
+        
+        # Remove AppArmor profiles directory to prevent regeneration
+        mv /etc/apparmor.d /etc/apparmor.d.disabled 2>/dev/null || true
         
         echo '[DEBUG] Creating Docker daemon configuration...'
         # Create valid Docker daemon config for LXC
@@ -862,19 +872,29 @@ EOF
     "
     
     msg_progress "Starting Docker services..."
-    pct exec "$CTID" -- bash -c "
+    if pct exec "$CTID" -- bash -c "
         cd /opt/ha-intent-predictor
+        echo '[DEBUG] Running docker compose up -d...'
         docker compose up -d
-    " > /tmp/docker_start 2>&1 &
-    
-    local docker_start_pid=$!
-    spinner $docker_start_pid "Starting database services..."
-    
-    if wait $docker_start_pid; then
-        msg_ok "Docker services started"
+        echo '[DEBUG] Docker compose command completed'
+        
+        # Check if containers actually started successfully
+        echo '[DEBUG] Checking container status...'
+        if ! docker ps | grep -q ha-predictor-postgres; then
+            echo '[DEBUG] PostgreSQL container not running'
+            exit 1
+        fi
+        if ! docker ps | grep -q ha-predictor-redis; then
+            echo '[DEBUG] Redis container not running'
+            exit 1
+        fi
+        echo '[DEBUG] All containers are running'
+    " > /tmp/docker_start 2>&1; then
+        msg_ok "Docker services started successfully"
     else
         msg_error "Failed to start Docker services"
-        cat /tmp/docker_start | tail -10
+        echo "Docker Compose output:"
+        cat /tmp/docker_start
         exit 1  # This will trigger cleanup via ERR trap
     fi
     
