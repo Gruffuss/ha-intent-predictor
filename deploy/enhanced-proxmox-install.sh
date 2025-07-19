@@ -682,6 +682,33 @@ function install_docker() {
         exit 1
     fi
     
+    # Fix AppArmor issues for LXC containers
+    msg_progress "Configuring Docker for LXC environment..."
+    pct exec "$CTID" -- bash -c "
+        # Create Docker daemon configuration
+        mkdir -p /etc/docker
+        cat > /etc/docker/daemon.json << 'EOF'
+{
+    \"storage-driver\": \"overlay2\",
+    \"log-driver\": \"json-file\",
+    \"log-opts\": {
+        \"max-size\": \"10m\",
+        \"max-file\": \"3\"
+    },
+    \"live-restore\": true,
+    \"userland-proxy\": false,
+    \"no-new-privileges\": false
+}
+EOF
+        
+        # Disable AppArmor for Docker in LXC
+        systemctl stop docker
+        aa-remove-unknown
+        systemctl start docker
+    " &>/dev/null || true
+    
+    msg_ok "Docker configured for LXC environment"
+    
     # Test Docker
     test_and_report \
         "pct exec $CTID -- docker --version" \
