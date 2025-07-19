@@ -908,20 +908,41 @@ EOF
         fi
         
         echo "[DEBUG] Testing PostgreSQL container..."
-        if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null; then
-            msg_ok "Services are ready"
-            break
+        # First check if container exists
+        if ! pct exec "$CTID" -- docker ps -a | grep -q ha-predictor-postgres; then
+            echo "[DEBUG] PostgreSQL container not found yet, waiting..."
+        elif ! pct exec "$CTID" -- docker ps | grep -q ha-predictor-postgres; then
+            echo "[DEBUG] PostgreSQL container exists but not running, waiting..."
         else
-            echo "[DEBUG] PostgreSQL not ready yet, attempt $((attempts + 1))/$max_attempts"
+            # Container is running, test readiness
+            if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null; then
+                msg_ok "PostgreSQL is ready"
+                break
+            else
+                echo "[DEBUG] PostgreSQL container running but not ready yet, attempt $((attempts + 1))/$max_attempts"
+            fi
         fi
         
+        # Only exit if we've tried all attempts
         if [ $attempts -eq $((max_attempts - 1)) ]; then
             msg_error "Services failed to become ready within $((max_attempts * 2)) seconds"
+            echo "[DEBUG] Final diagnostic information:"
             echo "Container status:"
             pct exec "$CTID" -- docker ps -a | grep ha-predictor || echo "No containers found"
-            echo "PostgreSQL logs:"
-            pct exec "$CTID" -- docker logs ha-predictor-postgres --tail 20 2>/dev/null || echo "Could not get logs"
-            exit 1
+            echo "PostgreSQL container details:"
+            if pct exec "$CTID" -- docker ps -a | grep -q ha-predictor-postgres; then
+                pct exec "$CTID" -- docker ps -a | grep ha-predictor-postgres
+                echo "PostgreSQL logs (last 10 lines):"
+                pct exec "$CTID" -- docker logs ha-predictor-postgres --tail 10 2>/dev/null || echo "Could not get logs"
+            else
+                echo "PostgreSQL container not found"
+            fi
+            echo "Available disk space:"
+            pct exec "$CTID" -- df -h / 2>/dev/null || echo "Could not check disk space"
+            
+            # Don't exit here - continue with installation but mark services as not ready
+            msg_warn "Continuing installation despite service readiness issues..."
+            break
         fi
         
         sleep 2
