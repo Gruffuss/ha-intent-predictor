@@ -1347,7 +1347,10 @@ function main() {
     parse_arguments "$@"
     echo "[DEBUG] Arguments parsed successfully"
     
-    trap cleanup ERR
+    # Set up comprehensive error handling
+    set -euo pipefail
+    trap 'echo "[ERROR] Script failed at line $LINENO. Exit code: $?"; cleanup; exit 1' ERR
+    trap 'echo "[INFO] Script interrupted by user"; cleanup; exit 130' INT TERM
     
     echo "[DEBUG] Displaying header..."
     header

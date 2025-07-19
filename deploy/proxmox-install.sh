@@ -915,7 +915,10 @@ function show_completion_info() {
 
 # Main installation flow
 function main() {
-    trap cleanup ERR
+    # Set up comprehensive error handling
+    set -euo pipefail
+    trap 'echo "[ERROR] Script failed at line $LINENO. Exit code: $?"; cleanup; exit 1' ERR
+    trap 'echo "[INFO] Script interrupted by user"; cleanup; exit 130' INT TERM
     
     header
     check_requirements
