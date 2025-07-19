@@ -376,8 +376,8 @@ function get_next_vmid() {
                 return 0
             fi
         fi
-        ((vmid++))
-        ((attempts++))
+        vmid=$((vmid + 1))
+        attempts=$((attempts + 1))
     done
     
     msg_error "Could not find available VMID after $max_attempts attempts"
