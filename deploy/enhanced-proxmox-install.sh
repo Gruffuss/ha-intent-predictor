@@ -91,7 +91,11 @@ function progress_bar() {
 
 function step_header() {
     local step_name="$1"
-    ((CURRENT_STEP++))
+    echo "[DEBUG] step_header called with: $step_name"
+    echo "[DEBUG] CURRENT_STEP before increment: $CURRENT_STEP"
+    
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    echo "[DEBUG] CURRENT_STEP after increment: $CURRENT_STEP"
     
     echo "[DEBUG] Starting step: $step_name"
     echo
@@ -99,9 +103,10 @@ function step_header() {
     echo -e "${PURPLE}║${NC} ${BLUE}STEP ${CURRENT_STEP}/${TOTAL_STEPS}: ${step_name}${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     
-    echo "[DEBUG] Calling progress_bar..."
-    progress_bar $CURRENT_STEP $TOTAL_STEPS
-    echo "[DEBUG] Progress bar completed"
+    echo "[DEBUG] About to call progress_bar with $CURRENT_STEP $TOTAL_STEPS"
+    # Temporarily disable progress bar to see if that's the issue
+    # progress_bar $CURRENT_STEP $TOTAL_STEPS
+    echo "[DEBUG] Progress bar skipped for debugging"
     echo
 }
 
