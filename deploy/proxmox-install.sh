@@ -875,7 +875,7 @@ function show_completion_info() {
 
 # Main installation flow
 function main() {
-    trap cleanup EXIT
+    trap cleanup ERR
     
     header
     check_requirements

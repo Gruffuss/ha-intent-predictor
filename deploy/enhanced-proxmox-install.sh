@@ -1187,7 +1187,7 @@ function main() {
     parse_arguments "$@"
     echo "[DEBUG] Arguments parsed successfully"
     
-    trap cleanup EXIT
+    trap cleanup ERR
     
     echo "[DEBUG] Displaying header..."
     header
@@ -1215,6 +1215,78 @@ function main() {
     run_validation_tests
     echo "[DEBUG] Showing completion info..."
     show_completion_info
+}
+
+function run_validation_tests() {
+    step_header "Running Validation Tests"
+    
+    msg_progress "Testing container connectivity..."
+    if pct exec "$CTID" -- ping -c 1 8.8.8.8 &>/dev/null; then
+        msg_ok "Internet connectivity: OK"
+    else
+        msg_warn "Internet connectivity: Limited"
+    fi
+    
+    msg_progress "Testing Python installation..."
+    if pct exec "$CTID" -- python3 --version &>/dev/null; then
+        local python_version=$(pct exec "$CTID" -- python3 --version 2>&1)
+        msg_ok "Python: $python_version"
+    else
+        msg_error "Python installation failed"
+    fi
+    
+    msg_progress "Testing Docker installation..."
+    if pct exec "$CTID" -- docker --version &>/dev/null; then
+        local docker_version=$(pct exec "$CTID" -- docker --version 2>&1)
+        msg_ok "Docker: $docker_version"
+    else
+        msg_error "Docker installation failed"
+    fi
+    
+    msg_progress "Testing application files..."
+    if pct exec "$CTID" -- test -d /opt/ha-intent-predictor; then
+        msg_ok "Application files: Present"
+    else
+        msg_error "Application files: Missing"
+    fi
+    
+    msg_ok "Validation tests completed"
+}
+
+function show_completion_info() {
+    step_header "Installation Complete"
+    
+    msg_ok "HA Intent Predictor has been successfully installed!"
+    echo
+    echo "=== INSTALLATION SUMMARY ==="
+    echo "  Container ID: $CTID"
+    echo "  Hostname: $HOSTNAME"
+    echo "  CPU Cores: $CORES"
+    echo "  Memory: ${MEMORY}MB"
+    echo "  Storage: $STORAGE"
+    echo "  Disk Size: ${DISK_SIZE}GB"
+    echo
+    
+    # Get container IP
+    local container_ip=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "checking...")
+    echo "=== ACCESS INFORMATION ==="
+    echo "  Container IP: $container_ip"
+    echo "  SSH: ssh root@$container_ip"
+    echo "  API: http://$container_ip:8000"
+    echo "  Grafana: http://$container_ip:3000"
+    echo
+    echo "=== MANAGEMENT COMMANDS ==="
+    echo "  View logs: pct exec $CTID -- journalctl -u ha-intent-predictor.service -f"
+    echo "  Restart: pct exec $CTID -- systemctl restart ha-intent-predictor.service"
+    echo "  Status: pct exec $CTID -- systemctl status ha-intent-predictor.service"
+    echo "  Enter container: pct enter $CTID"
+    echo
+    echo "=== NEXT STEPS ==="
+    echo "  1. Configure Home Assistant connection in /opt/ha-intent-predictor/config/"
+    echo "  2. Monitor the learning process in Grafana"
+    echo "  3. Add prediction entities to your Home Assistant automations"
+    echo
+    msg_ok "Installation completed successfully!"
 }
 
 # Run main function
