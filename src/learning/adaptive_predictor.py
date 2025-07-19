@@ -11,15 +11,15 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # Import all the components we've implemented
-from ingestion.data_enricher import DynamicFeatureDiscovery, AdaptiveFeatureSelector
-from learning.online_models import ContinuousLearningModel, MultiHorizonPredictor
-from learning.pattern_discovery import PatternDiscovery, UnbiasedPatternMiner
-from learning.anomaly_detection import AdaptiveCatDetector, OnlineAnomalyDetector
-from prediction.bathroom_predictor import BathroomOccupancyPredictor
-from adaptation.performance_monitor import PerformanceMonitor
-from adaptation.resource_optimizer import ResourceOptimizer
-from storage.timeseries_db import TimescaleDBManager
-from storage.feature_store import RedisFeatureStore
+from src.ingestion.data_enricher import DynamicFeatureDiscovery, AdaptiveFeatureSelector
+from src.learning.online_models import ContinuousLearningModel, MultiHorizonPredictor
+from src.learning.pattern_discovery import PatternDiscovery, UnbiasedPatternMiner
+from src.learning.anomaly_detection import AdaptiveCatDetector, OnlineAnomalyDetector
+from src.prediction.bathroom_predictor import BathroomOccupancyPredictor
+from src.adaptation.performance_monitor import PerformanceMonitor
+from src.adaptation.resource_optimizer import ResourceOptimizer
+from src.storage.timeseries_db import TimescaleDBManager
+from src.storage.feature_store import RedisFeatureStore
 
 logger = logging.getLogger(__name__)
 
