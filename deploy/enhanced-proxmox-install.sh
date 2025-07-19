@@ -915,7 +915,13 @@ EOF
             echo "[DEBUG] PostgreSQL container exists but not running, waiting..."
         else
             # Container is running, test readiness
-            if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null; then
+            # Temporarily disable exit on error for this check
+            set +e
+            pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null
+            local pg_ready_result=$?
+            set -e
+            
+            if [ $pg_ready_result -eq 0 ]; then
                 msg_ok "PostgreSQL is ready"
                 break
             else
