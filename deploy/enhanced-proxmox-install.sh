@@ -547,24 +547,42 @@ function create_container() {
     
     msg_ok "Container is running and ready"
     
-    # Get container IP
-    echo "[DEBUG] Attempting to get container IP..."
-    local container_ip=""
+    # Wait for container to be fully ready (like Proxmox community scripts)
+    echo "[DEBUG] Waiting for container to be fully operational..."
+    msg_progress "Waiting for container initialization..."
+    
+    local ready=false
     local attempts=0
-    while [ $attempts -lt 10 ] && [ -z "$container_ip" ]; do
-        echo "[DEBUG] IP detection attempt $((attempts + 1))/10"
-        container_ip=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "")
-        echo "[DEBUG] Got IP: '$container_ip'"
-        if [ -z "$container_ip" ]; then
-            sleep 2
+    while [ $attempts -lt 30 ] && [ "$ready" = false ]; do
+        echo "[DEBUG] Readiness check attempt $((attempts + 1))/30"
+        
+        # Test if we can execute basic commands
+        if pct exec "$CTID" -- /bin/bash -c "echo test" &>/dev/null; then
+            echo "[DEBUG] Container accepting commands"
+            # Wait a bit more for network to be ready
+            sleep 3
+            
+            # Try to get IP
+            local container_ip=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+            echo "[DEBUG] Container IP: '$container_ip'"
+            
+            if [ -n "$container_ip" ] && [[ "$container_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                msg_ok "Container ready with IP: $container_ip"
+                ready=true
+            else
+                echo "[DEBUG] IP not ready yet, waiting..."
+                sleep 3
+                ((attempts++))
+            fi
+        else
+            echo "[DEBUG] Container not ready for commands yet"
+            sleep 3
             ((attempts++))
         fi
     done
     
-    if [ -n "$container_ip" ]; then
-        msg_ok "Container IP: $container_ip"
-    else
-        msg_warn "Could not determine container IP after $attempts attempts"
+    if [ "$ready" = false ]; then
+        msg_warn "Container may not be fully ready, but proceeding..."
     fi
     
     echo "[DEBUG] create_container function completed"
