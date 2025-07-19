@@ -246,7 +246,8 @@ function collect_info() {
         # Interactive mode - ask user
         while true; do
             local suggested_ctid=$(get_next_vmid)
-            read -p "$(echo -e ${CYAN}Enter CT ID [default: $suggested_ctid]: ${NC})" input_ctid
+            echo -e -n "${CYAN}Enter CT ID [default: $suggested_ctid]: ${NC}"
+            read input_ctid
             CTID=${input_ctid:-$suggested_ctid}
             
             # Validate CTID format
@@ -301,38 +302,57 @@ function collect_info() {
     msg_ok "Container ID: $CTID (validated and available)"
     
     # Get hostname
-    read -p "$(echo -e ${CYAN}Enter hostname [default: $HOSTNAME]: ${NC})" input_hostname
-    HOSTNAME=${input_hostname:-$HOSTNAME}
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo -e -n "${CYAN}Enter hostname [default: $HOSTNAME]: ${NC}"
+        read input_hostname
+        HOSTNAME=${input_hostname:-$HOSTNAME}
+    fi
     msg_ok "Hostname: $HOSTNAME"
     
     # Get cores
-    read -p "$(echo -e ${CYAN}Enter CPU cores [default: $CORES]: ${NC})" input_cores
-    CORES=${input_cores:-$CORES}
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo -e -n "${CYAN}Enter CPU cores [default: $CORES]: ${NC}"
+        read input_cores
+        CORES=${input_cores:-$CORES}
+    fi
     msg_ok "CPU cores: $CORES"
     
     # Get memory
-    read -p "$(echo -e ${CYAN}Enter RAM in MB [default: $MEMORY]: ${NC})" input_memory
-    MEMORY=${input_memory:-$MEMORY}
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo -e -n "${CYAN}Enter RAM in MB [default: $MEMORY]: ${NC}"
+        read input_memory
+        MEMORY=${input_memory:-$MEMORY}
+    fi
     msg_ok "Memory: ${MEMORY}MB"
     
     # Get storage
-    msg_info "Available storage pools:"
-    pvesm status | grep -E "(local-lvm|local-zfs|local)" | awk '{print "  - " $1 " (" $2 ")"}'
-    read -p "$(echo -e ${CYAN}Enter storage pool [default: $STORAGE]: ${NC})" input_storage
-    STORAGE=${input_storage:-$STORAGE}
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        msg_info "Available storage pools:"
+        pvesm status | grep -E "(local-lvm|local-zfs|local)" | awk '{print "  - " $1 " (" $2 ")"}'
+        echo -e -n "${CYAN}Enter storage pool [default: $STORAGE]: ${NC}"
+        read input_storage
+        STORAGE=${input_storage:-$STORAGE}
+    fi
     msg_ok "Storage: $STORAGE"
     
     # Get disk size
-    read -p "$(echo -e ${CYAN}Enter disk size in GB [default: $DISK_SIZE]: ${NC})" input_disk_size
-    DISK_SIZE=${input_disk_size:-$DISK_SIZE}
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo -e -n "${CYAN}Enter disk size in GB [default: $DISK_SIZE]: ${NC}"
+        read input_disk_size
+        DISK_SIZE=${input_disk_size:-$DISK_SIZE}
+    fi
     msg_ok "Disk size: ${DISK_SIZE}GB"
     
     # Get HA details
-    echo
-    msg_info "Home Assistant integration setup:"
-    read -p "$(echo -e ${CYAN}Enter Home Assistant URL (e.g., http://YOUR_HA_IP:8123): ${NC})" HA_URL
-    read -s -p "$(echo -e ${CYAN}Enter Home Assistant Long-Lived Access Token: ${NC})" HA_TOKEN
-    echo
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo
+        msg_info "Home Assistant integration setup:"
+        echo -e -n "${CYAN}Enter Home Assistant URL (e.g., http://YOUR_HA_IP:8123): ${NC}"
+        read HA_URL
+        echo -e -n "${CYAN}Enter Home Assistant Long-Lived Access Token: ${NC}"
+        read -s HA_TOKEN
+        echo
+    fi
     
     # Test HA connection
     if [ -n "$HA_URL" ] && [ -n "$HA_TOKEN" ]; then
@@ -356,10 +376,13 @@ function collect_info() {
     echo -e "  HA URL: ${CYAN}$HA_URL${NC}"
     echo
     
-    read -p "$(echo -e ${GREEN}Proceed with installation? [y/N]: ${NC})" confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        msg_info "Installation cancelled"
-        exit 0
+    if [ "$INTERACTIVE_MODE" = true ]; then
+        echo -e -n "${GREEN}Proceed with installation? [y/N]: ${NC}"
+        read confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            msg_info "Installation cancelled"
+            exit 0
+        fi
     fi
 }
 
