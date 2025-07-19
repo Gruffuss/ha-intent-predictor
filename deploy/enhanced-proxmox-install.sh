@@ -784,7 +784,6 @@ function setup_docker_services() {
         
         # Create docker-compose.yml (simplified version for demo)
         cat > docker-compose.yml << 'EOF'
-version: '3.8'
 services:
   postgres:
     image: timescale/timescaledb:2.11.0-pg15
@@ -812,16 +811,18 @@ EOF
     msg_ok "Docker Compose configuration created"
     
     # Fix AppArmor issues before starting Docker Compose
-    msg_progress "Configuring AppArmor for Docker Compose..."
+    msg_progress "Configuring Docker for LXC environment..."
     pct exec "$CTID" -- bash -c "
-        # Stop Docker to ensure clean state
-        systemctl stop docker
+        echo '[DEBUG] Stopping Docker service...'
+        systemctl stop docker || true
         
+        echo '[DEBUG] Cleaning AppArmor profiles...'
         # Remove all AppArmor Docker profiles
         find /var/lib/docker -name 'docker-default*' -delete 2>/dev/null || true
         aa-remove-unknown 2>/dev/null || true
         
-        # Update Docker daemon config to completely disable AppArmor
+        echo '[DEBUG] Creating Docker daemon configuration...'
+        # Create valid Docker daemon config for LXC
         mkdir -p /etc/docker
         cat > /etc/docker/daemon.json << 'EOF'
 {
@@ -832,18 +833,33 @@ EOF
         \"max-file\": \"3\"
     },
     \"live-restore\": false,
-    \"userland-proxy\": false,
-    \"no-new-privileges\": false,
-    \"security-opts\": [\"apparmor:unconfined\"]
+    \"userland-proxy\": false
 }
 EOF
         
-        # Start Docker with new configuration
+        echo '[DEBUG] Starting Docker service...'
         systemctl start docker
         
-        # Wait for Docker to be ready
-        sleep 5
-    " &>/dev/null || true
+        echo '[DEBUG] Waiting for Docker to be ready...'
+        sleep 10
+        
+        echo '[DEBUG] Checking Docker status...'
+        if systemctl is-active docker >/dev/null 2>&1; then
+            echo '[DEBUG] Docker service is active'
+        else
+            echo '[DEBUG] Docker service failed to start'
+            systemctl status docker --no-pager
+            exit 1
+        fi
+        
+        echo '[DEBUG] Testing Docker daemon connection...'
+        if docker version >/dev/null 2>&1; then
+            echo '[DEBUG] Docker daemon is responding'
+        else
+            echo '[DEBUG] Docker daemon is not responding'
+            exit 1
+        fi
+    "
     
     msg_progress "Starting Docker services..."
     pct exec "$CTID" -- bash -c "
@@ -859,6 +875,7 @@ EOF
     else
         msg_error "Failed to start Docker services"
         cat /tmp/docker_start | tail -10
+        exit 1  # This will trigger cleanup via ERR trap
     fi
     
     # Wait for services to be ready
