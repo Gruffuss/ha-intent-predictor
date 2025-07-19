@@ -28,6 +28,9 @@ START_AFTER_CREATE="1"
 # Safety tracking
 CONTAINER_CREATED="false"
 
+# Default credentials
+DEFAULT_PASSWORD="hapredictor123"
+
 # HA Connection details
 HA_URL=""
 HA_TOKEN=""
@@ -357,12 +360,39 @@ function install_dependencies() {
         python3-dev \
         nginx \
         supervisor \
+        openssh-server \
         htop \
         nano \
         vim \
         unzip"
     
     msg_ok "System dependencies installed"
+}
+
+function setup_security() {
+    msg_info "Setting up security and access..."
+    
+    # Set root password
+    msg_info "Setting root password..."
+    pct exec "$CTID" -- bash -c "echo 'root:$DEFAULT_PASSWORD' | chpasswd"
+    msg_ok "Root password set to: $DEFAULT_PASSWORD"
+    
+    # Configure SSH access
+    msg_info "Configuring SSH access..."
+    pct exec "$CTID" -- bash -c "
+        # Enable SSH root login
+        sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        sed -i 's/PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        
+        # Enable password authentication
+        sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sed -i 's/PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        
+        # Restart SSH service
+        systemctl restart ssh
+        systemctl enable ssh
+    "
+    msg_ok "SSH configured for root access"
 }
 
 function install_docker() {
@@ -833,15 +863,24 @@ function show_completion_info() {
     echo
     echo -e "${GREEN}🎉 HA Intent Predictor is now running!${NC}"
     echo
+    
+    # Get container IP
+    local container_ip=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "checking...")
+    
     echo "📋 Container Details:"
     echo "   • Container ID: $CTID"
     echo "   • Hostname: $HOSTNAME"
-    echo "   • IP Address: $(pct exec "$CTID" -- hostname -I | tr -d ' ')"
+    echo "   • IP Address: $container_ip"
+    echo
+    echo "🔐 Access Information:"
+    echo "   • SSH: ssh root@$container_ip"
+    echo "   • Root Password: $DEFAULT_PASSWORD"
+    echo "   • Console: pct enter $CTID (from Proxmox host)"
     echo
     echo "🔗 Access URLs:"
-    echo "   • API: http://$(pct exec "$CTID" -- hostname -I | tr -d ' ')/api/"
-    echo "   • Grafana: http://$(pct exec "$CTID" -- hostname -I | tr -d ' ')/grafana/"
-    echo "   • Health: http://$(pct exec "$CTID" -- hostname -I | tr -d ' ')/health"
+    echo "   • API: http://$container_ip/api/"
+    echo "   • Grafana: http://$container_ip/grafana/"
+    echo "   • Health: http://$container_ip/health"
     echo
     echo "📊 Services:"
     echo "   • PostgreSQL + TimescaleDB: Port 5432"
@@ -857,9 +896,10 @@ function show_completion_info() {
     echo "   • Enter container: pct enter $CTID"
     echo
     echo "📝 Next Steps:"
-    echo "   1. Configure your Home Assistant sensors in /opt/ha-intent-predictor/config/sensors.yaml"
-    echo "   2. Monitor the learning progress in Grafana"
-    echo "   3. Add prediction entities to your Home Assistant automations"
+    echo "   1. Login via SSH: ssh root@$container_ip (password: $DEFAULT_PASSWORD)"
+    echo "   2. Configure your Home Assistant sensors in /opt/ha-intent-predictor/config/sensors.yaml"
+    echo "   3. Monitor the learning progress in Grafana at http://$container_ip:3000"
+    echo "   4. Add prediction entities to your Home Assistant automations"
     echo
     echo "📚 Documentation:"
     echo "   • Configuration: /opt/ha-intent-predictor/config/"
@@ -882,6 +922,7 @@ function main() {
     collect_info
     create_container
     install_dependencies
+    setup_security
     install_docker
     setup_application
     setup_docker_services

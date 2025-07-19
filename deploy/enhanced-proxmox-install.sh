@@ -49,6 +49,9 @@ AUTO_CTID=false
 # Safety tracking
 CONTAINER_CREATED="false"
 
+# Default credentials
+DEFAULT_PASSWORD="hapredictor123"
+
 function header() {
     # Only clear if running in interactive terminal
     if [ -t 0 ] && [ -t 1 ]; then
@@ -665,6 +668,37 @@ function install_dependencies() {
         "Curl installation" \
         "Curl is working" \
         "Curl installation failed"
+}
+
+function setup_security() {
+    step_header "Setting Up Security and Access"
+    
+    msg_progress "Setting root password..."
+    pct exec "$CTID" -- bash -c "echo 'root:$DEFAULT_PASSWORD' | chpasswd"
+    msg_ok "Root password set to: $DEFAULT_PASSWORD"
+    
+    msg_progress "Configuring SSH access..."
+    pct exec "$CTID" -- bash -c "
+        # Enable SSH root login
+        sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        sed -i 's/PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        
+        # Enable password authentication
+        sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sed -i 's/PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        
+        # Restart SSH service
+        systemctl restart sshd
+        systemctl enable ssh
+    "
+    msg_ok "SSH configured for root access"
+    
+    # Test SSH connectivity
+    test_and_report \
+        \"pct exec $CTID -- systemctl is-active ssh\" \
+        \"SSH service\" \
+        \"SSH service is running\" \
+        \"SSH service failed to start\"
 }
 
 function install_docker() {
@@ -1304,6 +1338,8 @@ function main() {
     create_container
     echo "[DEBUG] Installing dependencies..."
     install_dependencies
+    echo "[DEBUG] Setting up security and access..."
+    setup_security
     echo "[DEBUG] Installing docker..."
     install_docker
     echo "[DEBUG] Setting up application..."
@@ -1377,6 +1413,8 @@ function show_completion_info() {
     echo "=== ACCESS INFORMATION ==="
     echo "  Container IP: $container_ip"
     echo "  SSH: ssh root@$container_ip"
+    echo "  Root Password: $DEFAULT_PASSWORD"
+    echo "  Console: pct enter $CTID (from Proxmox host)"
     echo "  API: http://$container_ip:8000"
     echo "  Grafana: http://$container_ip:3000"
     echo
@@ -1387,9 +1425,10 @@ function show_completion_info() {
     echo "  Enter container: pct enter $CTID"
     echo
     echo "=== NEXT STEPS ==="
-    echo "  1. Configure Home Assistant connection in /opt/ha-intent-predictor/config/"
-    echo "  2. Monitor the learning process in Grafana"
-    echo "  3. Add prediction entities to your Home Assistant automations"
+    echo "  1. Login via SSH: ssh root@$container_ip (password: $DEFAULT_PASSWORD)"
+    echo "  2. Configure Home Assistant connection in /opt/ha-intent-predictor/config/"
+    echo "  3. Monitor the learning process in Grafana at http://$container_ip:3000"
+    echo "  4. Add prediction entities to your Home Assistant automations"
     echo
     msg_ok "Installation completed successfully!"
 }
