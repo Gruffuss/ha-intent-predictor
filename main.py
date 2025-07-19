@@ -163,10 +163,14 @@ class HAIntentPredictorSystem:
         logger.info("Initializing HA integration...")
         
         # Dynamic entity creation and updates
-        self.components['ha_publisher'] = DynamicHAIntegration(
-            ha_config=self.config.get('home_assistant'),
-            predictor=self.components['predictor']
+        # First create HA API instance
+        from src.ingestion.ha_api import HomeAssistantAPI
+        ha_api = HomeAssistantAPI(
+            url=self.config.get('home_assistant.url'),
+            token=self.config.get('home_assistant.token')
         )
+        
+        self.components['ha_publisher'] = DynamicHAIntegration(ha_api)
         await self.components['ha_publisher'].initialize()
     
     async def _init_monitoring(self):
