@@ -854,15 +854,28 @@ EOF
     # Wait for services to be ready
     msg_progress "Waiting for services to be ready..."
     local attempts=0
-    while [ $attempts -lt 60 ]; do
+    local max_attempts=30
+    while [ $attempts -lt $max_attempts ]; do
+        echo "[DEBUG] Service readiness check attempt $((attempts + 1))/$max_attempts"
+        
+        # Check if postgres container is responding
         if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null; then
+            msg_ok "Services are ready"
             break
         fi
+        
+        if [ $attempts -eq $((max_attempts - 1)) ]; then
+            msg_error "Services failed to become ready within $((max_attempts * 2)) seconds"
+            echo "Container status:"
+            pct exec "$CTID" -- docker ps -a | grep ha-predictor || echo "No containers found"
+            echo "PostgreSQL logs:"
+            pct exec "$CTID" -- docker logs ha-predictor-postgres --tail 20 2>/dev/null || echo "Could not get logs"
+            exit 1
+        fi
+        
         sleep 2
         ((attempts++))
-        echo -n "."
     done
-    echo
     
     # Test services
     test_and_report \
