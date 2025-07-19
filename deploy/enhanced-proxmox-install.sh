@@ -207,9 +207,14 @@ function cleanup() {
 }
 
 function check_requirements() {
+    echo "[DEBUG] Entered check_requirements function"
+    echo "[DEBUG] About to call step_header..."
     step_header "Checking Proxmox Requirements"
+    echo "[DEBUG] step_header completed"
     
+    echo "[DEBUG] About to call msg_progress..."
     msg_progress "Verifying Proxmox environment..."
+    echo "[DEBUG] msg_progress completed"
     echo "[DEBUG] Checking kernel version: $(uname -r)"
     
     # Check if running on Proxmox - use kernel check instead of command check
