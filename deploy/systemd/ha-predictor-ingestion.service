@@ -1,0 +1,53 @@
+[Unit]
+Description=HA Intent Predictor - Data Ingestion Service
+Documentation=https://github.com/yourusername/ha-intent-predictor
+After=network.target docker.service ha-intent-predictor.service
+Wants=network.target
+Requires=docker.service
+PartOf=ha-intent-predictor.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/opt/ha-intent-predictor
+Environment=PATH=/opt/ha-intent-predictor/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/opt/ha-intent-predictor
+Environment=LOG_LEVEL=INFO
+Environment=SERVICE_NAME=ingestion
+EnvironmentFile=-/opt/ha-intent-predictor/.env
+
+# Data ingestion service startup
+ExecStart=/opt/ha-intent-predictor/venv/bin/python -m src.ingestion.main
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Process management
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ha-intent-predictor /var/log/ha-intent-predictor /tmp
+
+# Resource limits (lighter than main service)
+LimitNOFILE=32768
+LimitNPROC=16384
+MemoryAccounting=yes
+MemoryHigh=2G
+MemoryMax=3G
+CPUAccounting=yes
+CPUQuota=200%
+
+# Standard output to journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ha-predictor-ingestion
+
+[Install]
+WantedBy=multi-user.target

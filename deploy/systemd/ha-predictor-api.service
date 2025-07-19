@@ -1,0 +1,66 @@
+[Unit]
+Description=HA Intent Predictor - API Service
+Documentation=https://github.com/yourusername/ha-intent-predictor
+After=network.target docker.service ha-intent-predictor.service
+Wants=network.target
+Requires=docker.service
+PartOf=ha-intent-predictor.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/opt/ha-intent-predictor
+Environment=PATH=/opt/ha-intent-predictor/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/opt/ha-intent-predictor
+Environment=LOG_LEVEL=INFO
+Environment=SERVICE_NAME=api
+EnvironmentFile=-/opt/ha-intent-predictor/.env
+
+# API service startup with Gunicorn
+ExecStart=/opt/ha-intent-predictor/venv/bin/gunicorn src.integration.api:app \
+    --bind 0.0.0.0:8000 \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --worker-connections 1000 \
+    --max-requests 10000 \
+    --max-requests-jitter 1000 \
+    --timeout 30 \
+    --keep-alive 5 \
+    --preload \
+    --access-logfile /var/log/ha-intent-predictor/api-access.log \
+    --error-logfile /var/log/ha-intent-predictor/api-error.log \
+    --log-level info
+    
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Process management
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ha-intent-predictor /var/log/ha-intent-predictor /tmp
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=16384
+MemoryAccounting=yes
+MemoryHigh=1G
+MemoryMax=2G
+CPUAccounting=yes
+CPUQuota=200%
+
+# Standard output to journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ha-predictor-api
+
+[Install]
+WantedBy=multi-user.target

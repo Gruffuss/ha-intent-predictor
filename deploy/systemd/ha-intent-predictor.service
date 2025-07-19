@@ -1,0 +1,51 @@
+[Unit]
+Description=HA Intent Predictor - Main Application
+Documentation=https://github.com/yourusername/ha-intent-predictor
+After=network.target docker.service postgresql.service redis.service
+Wants=network.target
+Requires=docker.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/opt/ha-intent-predictor
+Environment=PATH=/opt/ha-intent-predictor/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/opt/ha-intent-predictor
+Environment=LOG_LEVEL=INFO
+EnvironmentFile=-/opt/ha-intent-predictor/.env
+
+# Main application startup
+ExecStart=/opt/ha-intent-predictor/venv/bin/python -m src.main
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Process management
+Restart=always
+RestartSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ha-intent-predictor /var/log/ha-intent-predictor /tmp
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+MemoryAccounting=yes
+MemoryHigh=6G
+MemoryMax=7G
+CPUAccounting=yes
+CPUQuota=400%
+
+# Standard output to journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ha-intent-predictor
+
+[Install]
+WantedBy=multi-user.target
