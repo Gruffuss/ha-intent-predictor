@@ -75,26 +75,32 @@ function progress_bar() {
     local current=$1
     local total=$2
     local width=50
+    echo "[DEBUG] progress_bar called with current=$current total=$total"
     local percentage=$((current * 100 / total))
     local completed=$((current * width / total))
     local remaining=$((width - completed))
     
+    echo "[DEBUG] Displaying progress bar..."
     printf "\n${CYAN}Progress: ["
     printf "%*s" $completed | tr ' ' '█'
     printf "%*s" $remaining | tr ' ' '░'
     printf "] %d%% (%d/%d)${NC}\n" $percentage $current $total
+    echo "[DEBUG] Progress bar printf completed"
 }
 
 function step_header() {
     local step_name="$1"
     ((CURRENT_STEP++))
     
+    echo "[DEBUG] Starting step: $step_name"
     echo
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║${NC} ${BLUE}STEP ${CURRENT_STEP}/${TOTAL_STEPS}: ${step_name}${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
     
+    echo "[DEBUG] Calling progress_bar..."
     progress_bar $CURRENT_STEP $TOTAL_STEPS
+    echo "[DEBUG] Progress bar completed"
     echo
 }
 
