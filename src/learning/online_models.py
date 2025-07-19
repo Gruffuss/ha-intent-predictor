@@ -6,7 +6,7 @@ Implements the adaptive prediction system from CLAUDE.md
 import logging
 from collections import defaultdict
 from typing import Dict, Any, Optional
-from river import ensemble, tree, metrics, preprocessing, forest
+from river import ensemble, tree, metrics, preprocessing, forest, utils
 from river import linear_model
 from river import stats
 
@@ -42,7 +42,7 @@ class ContinuousLearningModel:
         
         # Track each model's performance
         self.model_performance = {
-            name: metrics.Rolling(metrics.Accuracy(), window_size=1000)
+            name: utils.Rolling(metrics.Accuracy(), window_size=1000)
             for name in self.models
         }
         
