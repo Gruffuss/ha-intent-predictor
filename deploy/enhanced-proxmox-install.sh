@@ -811,6 +811,40 @@ EOF
     
     msg_ok "Docker Compose configuration created"
     
+    # Fix AppArmor issues before starting Docker Compose
+    msg_progress "Configuring AppArmor for Docker Compose..."
+    pct exec "$CTID" -- bash -c "
+        # Stop Docker to ensure clean state
+        systemctl stop docker
+        
+        # Remove all AppArmor Docker profiles
+        find /var/lib/docker -name 'docker-default*' -delete 2>/dev/null || true
+        aa-remove-unknown 2>/dev/null || true
+        
+        # Update Docker daemon config to completely disable AppArmor
+        mkdir -p /etc/docker
+        cat > /etc/docker/daemon.json << 'EOF'
+{
+    \"storage-driver\": \"overlay2\",
+    \"log-driver\": \"json-file\",
+    \"log-opts\": {
+        \"max-size\": \"10m\",
+        \"max-file\": \"3\"
+    },
+    \"live-restore\": false,
+    \"userland-proxy\": false,
+    \"no-new-privileges\": false,
+    \"security-opts\": [\"apparmor:unconfined\"]
+}
+EOF
+        
+        # Start Docker with new configuration
+        systemctl start docker
+        
+        # Wait for Docker to be ready
+        sleep 5
+    " &>/dev/null || true
+    
     msg_progress "Starting Docker services..."
     pct exec "$CTID" -- bash -c "
         cd /opt/ha-intent-predictor
