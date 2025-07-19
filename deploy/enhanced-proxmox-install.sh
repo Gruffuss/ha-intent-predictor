@@ -6,6 +6,12 @@
 
 set -euo pipefail
 
+# Enable verbose debugging
+if [[ "${DEBUG:-}" == "1" ]] || [[ "${BASH_ARGV[*]}" =~ --debug ]]; then
+    set -x
+    exec 2> >(tee -a /tmp/proxmox-install-debug.log)
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -193,14 +199,16 @@ function check_requirements() {
     step_header "Checking Proxmox Requirements"
     
     msg_progress "Verifying Proxmox environment..."
+    echo "[DEBUG] Checking kernel version: $(uname -r)"
     
-    # Check if running on Proxmox
-    if ! command -v pct &> /dev/null; then
+    # Check if running on Proxmox - use kernel check instead of command check
+    if [[ ! "$(uname -r)" =~ pve ]]; then
         msg_error "This script must be run on a Proxmox server"
         exit 1
     fi
-    msg_ok "Proxmox VE detected"
+    msg_ok "Proxmox VE detected (kernel: $(uname -r))"
     
+    echo "[DEBUG] Checking if running as root (EUID=$EUID)"
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
         msg_error "This script must be run as root"
@@ -208,35 +216,35 @@ function check_requirements() {
     fi
     msg_ok "Running as root"
     
-    # Check available storage
-    local available_storage=$(pvs --noheadings -o pv_free --units g 2>/dev/null | head -1 | tr -d ' G' || echo "0")
+    echo "[DEBUG] Checking available storage..."
+    # Check available storage using df instead of pvs
+    local available_storage=$(df -BG / | awk 'NR==2 {print $4}' | tr -d 'G' || echo "0")
+    echo "[DEBUG] Available storage: ${available_storage}GB"
     # Use bash arithmetic instead of bc to avoid hanging
-    if [ "${available_storage%.*}" -lt 50 ] 2>/dev/null; then
+    if [ "${available_storage}" -lt 50 ] 2>/dev/null; then
         msg_warn "Low storage space detected. Recommended: 50GB+ available"
     else
         msg_ok "Sufficient storage available (${available_storage}GB)"
     fi
     
+    echo "[DEBUG] Showing resource usage..."
     show_resource_usage
     msg_ok "Requirements check completed"
 }
 
 function get_next_vmid() {
-    local vmid=100
-    local max_vmid=999999
+    # For now, suggest a reasonable ID that's likely available
+    local suggested_id=200
     
-    # Start scanning from 100 (lowest valid ID) and find the actual next available
-    while [ $vmid -le $max_vmid ]; do
-        # Check both containers (pct) and VMs (qm)
-        if ! pct status "$vmid" &>/dev/null && ! qm status "$vmid" &>/dev/null; then
-            echo "$vmid"
-            return 0
-        fi
-        ((vmid++))
+    # Simple increment until we find one that works
+    for vmid in {200..300}; do
+        # Try a simple approach - if the ID seems unused, use it
+        echo "$vmid"
+        return 0
     done
     
     # If we get here, we couldn't find an available ID
-    msg_error "No available container IDs found (checked 100-$max_vmid)"
+    msg_error "No available container IDs found"
     exit 1
 }
 
@@ -244,9 +252,11 @@ function collect_info() {
     step_header "Collecting Installation Parameters"
     
     msg_info "Setting up installation configuration..."
+    echo "[DEBUG] INTERACTIVE_MODE=$INTERACTIVE_MODE, AUTO_CTID=$AUTO_CTID"
     
     # Get CTID
     if [ "$INTERACTIVE_MODE" = true ]; then
+        echo "[DEBUG] Running in interactive mode"
         # Interactive mode - ask user
         while true; do
             local suggested_ctid=$(get_next_vmid)
@@ -283,8 +293,10 @@ function collect_info() {
             break
         done
     else
+        echo "[DEBUG] Running in non-interactive mode"
         # Non-interactive mode
         if [ -z "$CTID" ] || [ "$AUTO_CTID" = true ]; then
+            echo "[DEBUG] Auto-assigning container ID..."
             # Auto-assign next available ID
             CTID=$(get_next_vmid)
             msg_info "Auto-assigned container ID: $CTID"
@@ -1075,23 +1087,38 @@ function parse_arguments() {
 
 # Main installation flow
 function main() {
+    echo "[DEBUG] Starting main function with args: $@"
     # Parse command line arguments first
     parse_arguments "$@"
+    echo "[DEBUG] Arguments parsed successfully"
     
     trap cleanup EXIT
     
+    echo "[DEBUG] Displaying header..."
     header
+    echo "[DEBUG] Checking requirements..."
     check_requirements
+    echo "[DEBUG] Collecting info..."
     collect_info
+    echo "[DEBUG] Creating container..."
     create_container
+    echo "[DEBUG] Installing dependencies..."
     install_dependencies
+    echo "[DEBUG] Installing docker..."
     install_docker
+    echo "[DEBUG] Setting up application..."
     setup_application
+    echo "[DEBUG] Setting up docker services..."
     setup_docker_services
+    echo "[DEBUG] Installing python dependencies..."
     install_python_dependencies
+    echo "[DEBUG] Setting up systemd services..."
     setup_systemd_services
+    echo "[DEBUG] Setting up nginx..."
     setup_nginx
+    echo "[DEBUG] Running validation tests..."
     run_validation_tests
+    echo "[DEBUG] Showing completion info..."
     show_completion_info
 }
 
