@@ -393,7 +393,8 @@ class HADataStream:
     
     async def _polling_stream(self):
         """Polling backup for WebSocket failures"""
-        last_poll_time = datetime.now()
+        from datetime import timezone
+        last_poll_time = datetime.now(timezone.utc)
         
         while True:
             try:
@@ -405,7 +406,7 @@ class HADataStream:
                         if response.status == 200:
                             states = await response.json()
                             
-                            current_time = datetime.now()
+                            current_time = datetime.now(timezone.utc)
                             
                             # Check for state changes since last poll
                             for state in states:
