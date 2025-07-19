@@ -97,15 +97,15 @@ class HAIntentPredictorSystem:
         
         # TimescaleDB for time series data
         self.components['timeseries_db'] = TimescaleDBManager(
-            self.config.get('database.timescale')
+            self._build_db_connection_string()
         )
-        await self.components['timeseries_db'].connect()
+        await self.components['timeseries_db'].initialize()
         
         # Redis for feature caching
         self.components['feature_store'] = RedisFeatureStore(
-            self.config.get('redis')
+            self._build_redis_url()
         )
-        await self.components['feature_store'].connect()
+        await self.components['feature_store'].initialize()
         
         # Model versioning store
         self.components['model_store'] = ModelStore(
