@@ -853,15 +853,32 @@ EOF
     
     # Wait for services to be ready
     msg_progress "Waiting for services to be ready..."
+    echo "[DEBUG] Starting service readiness checks..."
     local attempts=0
     local max_attempts=30
+    echo "[DEBUG] About to enter readiness loop..."
     while [ $attempts -lt $max_attempts ]; do
         echo "[DEBUG] Service readiness check attempt $((attempts + 1))/$max_attempts"
         
         # Check if postgres container is responding
+        echo "[DEBUG] Testing container connectivity..."
+        if ! pct status "$CTID" | grep -q "running"; then
+            echo "[ERROR] Container $CTID is not running!"
+            exit 1
+        fi
+        
+        echo "[DEBUG] Testing Docker in container..."
+        if ! pct exec "$CTID" -- docker ps &>/dev/null; then
+            echo "[ERROR] Docker is not accessible in container!"
+            exit 1
+        fi
+        
+        echo "[DEBUG] Testing PostgreSQL container..."
         if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null; then
             msg_ok "Services are ready"
             break
+        else
+            echo "[DEBUG] PostgreSQL not ready yet, attempt $((attempts + 1))/$max_attempts"
         fi
         
         if [ $attempts -eq $((max_attempts - 1)) ]; then
