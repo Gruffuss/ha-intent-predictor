@@ -33,7 +33,7 @@ CORES="4"
 MEMORY="8192"
 STORAGE="local-lvm"
 DISK_SIZE="32"
-TEMPLATE="ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
+TEMPLATE=""  # Will be auto-detected
 NETWORK="name=eth0,bridge=vmbr0,ip=dhcp"
 PRIVILEGED="0"
 START_AFTER_CREATE="1"
@@ -45,6 +45,9 @@ HA_TOKEN=""
 # Installation mode
 INTERACTIVE_MODE=true
 AUTO_CTID=false
+
+# Safety tracking
+CONTAINER_CREATED="false"
 
 function header() {
     # Only clear if running in interactive terminal
@@ -204,11 +207,88 @@ function show_resource_usage() {
 }
 
 function cleanup() {
-    if [ -n "$CTID" ] && pct status "$CTID" &>/dev/null; then
-        msg_warn "Cleaning up failed installation..."
-        pct stop "$CTID" 2>/dev/null || true
-        pct destroy "$CTID" 2>/dev/null || true
+    # Only cleanup if we created the container in this session
+    if [ -n "$CTID" ] && [ "$CONTAINER_CREATED" = "true" ] && pct status "$CTID" &>/dev/null; then
+        msg_warn "Cleaning up failed installation for container $CTID..."
+        
+        # Double-check this is our container by checking if it has our hostname
+        local container_hostname=$(pct exec "$CTID" -- hostname 2>/dev/null || echo "")
+        if [ "$container_hostname" = "$HOSTNAME" ]; then
+            msg_info "Stopping and removing container $CTID (hostname: $container_hostname)"
+            pct stop "$CTID" 2>/dev/null || true
+            pct destroy "$CTID" 2>/dev/null || true
+            msg_ok "Cleanup completed"
+        else
+            msg_error "Safety check failed: Container $CTID hostname '$container_hostname' does not match expected '$HOSTNAME'"
+            msg_error "Manual cleanup required. Container $CTID was NOT removed for safety."
+        fi
+    elif [ -n "$CTID" ]; then
+        msg_info "No cleanup needed - container $CTID was not created in this session"
     fi
+}
+
+function detect_ubuntu_template() {
+    msg_progress "Detecting available Ubuntu template..."
+    
+    # First, check local storage for available templates
+    local available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    
+    if [ -n "$available_templates" ]; then
+        TEMPLATE="$available_templates"
+        msg_ok "Found local template: $TEMPLATE"
+        return 0
+    fi
+    
+    # If not found locally, check available downloads
+    msg_progress "Checking available Ubuntu templates for download..."
+    available_templates=$(pveam available --section system 2>/dev/null | grep -E "ubuntu-22\.04.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    
+    if [ -n "$available_templates" ]; then
+        TEMPLATE="$available_templates"
+        msg_info "Will download template: $TEMPLATE"
+        
+        # Download the template
+        msg_progress "Downloading Ubuntu template..."
+        if pveam download local "$TEMPLATE" 2>/dev/null; then
+            msg_ok "Template downloaded successfully: $TEMPLATE"
+        else
+            msg_error "Failed to download template: $TEMPLATE"
+            exit 1
+        fi
+        return 0
+    fi
+    
+    # If still not found, try a broader search
+    msg_progress "Searching for any available Ubuntu template..."
+    available_templates=$(pveam list local 2>/dev/null | grep -E "ubuntu.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    
+    if [ -n "$available_templates" ]; then
+        TEMPLATE="$available_templates"
+        msg_warn "Using alternative Ubuntu template: $TEMPLATE"
+        return 0
+    fi
+    
+    # Last resort - check for any Ubuntu template available for download
+    available_templates=$(pveam available --section system 2>/dev/null | grep -E "ubuntu.*standard.*amd64\.tar\.zst" | awk '{print $2}' | sort -V | tail -1)
+    
+    if [ -n "$available_templates" ]; then
+        TEMPLATE="$available_templates"
+        msg_info "Will download alternative Ubuntu template: $TEMPLATE"
+        
+        if pveam download local "$TEMPLATE" 2>/dev/null; then
+            msg_ok "Template downloaded successfully: $TEMPLATE"
+        else
+            msg_error "Failed to download template: $TEMPLATE"
+            exit 1
+        fi
+        return 0
+    fi
+    
+    # No templates found
+    msg_error "No Ubuntu templates found. Please download one manually:"
+    msg_error "pveam available --section system | grep ubuntu"
+    msg_error "pveam download local <template-name>"
+    exit 1
 }
 
 function check_requirements() {
@@ -250,22 +330,33 @@ function check_requirements() {
     
     echo "[DEBUG] Showing resource usage..."
     show_resource_usage
+    
+    # Auto-detect available Ubuntu template
+    echo "[DEBUG] Auto-detecting Ubuntu template..."
+    detect_ubuntu_template
+    
     msg_ok "Requirements check completed"
 }
 
 function get_next_vmid() {
-    # For now, suggest a reasonable ID that's likely available
-    local suggested_id=200
+    local vmid=200
+    local max_attempts=100
+    local attempts=0
     
-    # Simple increment until we find one that works
-    for vmid in {200..300}; do
-        # Try a simple approach - if the ID seems unused, use it
-        echo "$vmid"
-        return 0
+    while [ $attempts -lt $max_attempts ]; do
+        # Check both LXC containers and VMs
+        if ! pct status "$vmid" &>/dev/null && ! qm status "$vmid" &>/dev/null; then
+            # Double-check by listing all VMs/containers
+            if ! pvesh get /cluster/resources --type vm --output-format json | jq -r '.[].vmid' | grep -q "^${vmid}$" 2>/dev/null; then
+                echo "$vmid"
+                return 0
+            fi
+        fi
+        ((vmid++))
+        ((attempts++))
     done
     
-    # If we get here, we couldn't find an available ID
-    msg_error "No available container IDs found"
+    msg_error "Could not find available VMID after $max_attempts attempts"
     exit 1
 }
 
@@ -426,10 +517,16 @@ function collect_info() {
 function create_container() {
     step_header "Creating LXC Container"
     
+    # Final safety check before creation
+    if pct status "$CTID" &>/dev/null || qm status "$CTID" &>/dev/null; then
+        msg_error "CRITICAL: Container/VM $CTID exists just before creation. Aborting to prevent data loss."
+        exit 1
+    fi
+    
     msg_progress "Creating container with ID $CTID..."
     
     # Create container
-    pct create "$CTID" "$TEMPLATE" \
+    if pct create "$CTID" "$TEMPLATE" \
         --hostname "$HOSTNAME" \
         --cores "$CORES" \
         --memory "$MEMORY" \
@@ -439,12 +536,10 @@ function create_container() {
         --unprivileged "$PRIVILEGED" \
         --features nesting=1,keyctl=1 \
         --onboot 1 \
-        --start "$START_AFTER_CREATE" > /tmp/container_create 2>&1 &
-    
-    local create_pid=$!
-    spinner $create_pid "Creating container..."
-    
-    if wait $create_pid; then
+        --start "$START_AFTER_CREATE" > /tmp/container_create 2>&1; then
+        
+        # Mark that we successfully created this container
+        CONTAINER_CREATED="true"
         msg_ok "Container created successfully"
     else
         msg_error "Container creation failed"
