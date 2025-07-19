@@ -178,13 +178,17 @@ function test_and_report() {
 
 function show_resource_usage() {
     echo -e "\n${CYAN}=== SYSTEM RESOURCES ===${NC}"
-    local cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//')
-    local memory_usage=$(free -h | awk '/^Mem:/ {printf "%.1f%% (%s/%s)", ($3/$2)*100, $3, $2}')
-    local disk_usage=$(df -h / | awk 'NR==2 {printf "%s (%s used)", $5, $3}')
+    echo "[DEBUG] Getting CPU usage..."
+    local cpu_usage=$(timeout 5 top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' || echo "N/A")
+    echo "[DEBUG] Getting memory usage..."
+    local memory_usage=$(timeout 5 free -h | awk '/^Mem:/ {printf "%.1f%% (%s/%s)", ($3/$2)*100, $3, $2}' || echo "N/A")
+    echo "[DEBUG] Getting disk usage..."
+    local disk_usage=$(timeout 5 df -h / | awk 'NR==2 {printf "%s (%s used)", $5, $3}' || echo "N/A")
     
     echo -e "  CPU Usage: ${cpu_usage}%"
     echo -e "  Memory: ${memory_usage}"
     echo -e "  Disk: ${disk_usage}"
+    echo "[DEBUG] Resource usage display completed"
 }
 
 function cleanup() {
