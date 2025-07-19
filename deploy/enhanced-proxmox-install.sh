@@ -520,6 +520,21 @@ function create_container() {
         # Mark that we successfully created this container
         CONTAINER_CREATED="true"
         msg_ok "Container created successfully"
+        
+        # Add Docker-specific LXC configuration (like community scripts do)
+        echo "lxc.apparmor.profile: unconfined" >> /etc/pve/lxc/$CTID.conf
+        echo "lxc.cap.drop:" >> /etc/pve/lxc/$CTID.conf
+        echo "lxc.cgroup2.devices.allow: a" >> /etc/pve/lxc/$CTID.conf
+        echo "lxc.mount.auto: proc:rw sys:rw" >> /etc/pve/lxc/$CTID.conf
+        msg_ok "Added Docker-specific LXC configuration"
+        
+        # Restart container for LXC config to take effect
+        echo "[DEBUG] Restarting container to apply LXC configuration..."
+        pct stop "$CTID"
+        sleep 3
+        pct start "$CTID"
+        sleep 5
+        msg_ok "Container restarted with Docker configuration"
     else
         msg_error "Container creation failed"
         cat /tmp/container_create
@@ -817,14 +832,16 @@ EOF
         # Check if containers actually started successfully
         echo '[DEBUG] Checking container status...'
         if ! docker ps | grep -q ha-predictor-postgres; then
-            echo '[DEBUG] PostgreSQL container not running'
+            echo '[ERROR] PostgreSQL container failed to start - AppArmor issue detected'
+            docker ps -a | grep ha-predictor || echo 'No containers found'
             exit 1
         fi
         if ! docker ps | grep -q ha-predictor-redis; then
-            echo '[DEBUG] Redis container not running'
+            echo '[ERROR] Redis container failed to start - AppArmor issue detected'
+            docker ps -a | grep ha-predictor || echo 'No containers found'
             exit 1
         fi
-        echo '[DEBUG] All containers are running'
+        echo '[DEBUG] All containers are running successfully'
     " > /tmp/docker_start 2>&1; then
         msg_ok "Docker services started successfully"
     else
