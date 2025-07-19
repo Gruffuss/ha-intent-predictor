@@ -25,6 +25,9 @@ NETWORK="name=eth0,bridge=vmbr0,ip=dhcp"
 PRIVILEGED="0"
 START_AFTER_CREATE="1"
 
+# Safety tracking
+CONTAINER_CREATED="false"
+
 # HA Connection details
 HA_URL=""
 HA_TOKEN=""
@@ -71,10 +74,23 @@ function msg_warn() {
 }
 
 function cleanup() {
-    if [ -n "$CTID" ] && pct status "$CTID" &>/dev/null; then
-        msg_warn "Cleaning up failed installation..."
-        pct stop "$CTID" 2>/dev/null || true
-        pct destroy "$CTID" 2>/dev/null || true
+    # Only cleanup if we created the container in this session
+    if [ -n "$CTID" ] && [ "$CONTAINER_CREATED" = "true" ] && pct status "$CTID" &>/dev/null; then
+        msg_warn "Cleaning up failed installation for container $CTID..."
+        
+        # Double-check this is our container by checking if it has our hostname
+        local container_hostname=$(pct exec "$CTID" -- hostname 2>/dev/null || echo "")
+        if [ "$container_hostname" = "$HOSTNAME" ]; then
+            msg_info "Stopping and removing container $CTID (hostname: $container_hostname)"
+            pct stop "$CTID" 2>/dev/null || true
+            pct destroy "$CTID" 2>/dev/null || true
+            msg_ok "Cleanup completed"
+        else
+            msg_error "Safety check failed: Container $CTID hostname '$container_hostname' does not match expected '$HOSTNAME'"
+            msg_error "Manual cleanup required. Container $CTID was NOT removed for safety."
+        fi
+    elif [ -n "$CTID" ]; then
+        msg_info "No cleanup needed - container $CTID was not created in this session"
     fi
 }
 
@@ -93,10 +109,29 @@ function check_requirements() {
         exit 1
     fi
     
+    # Check for required commands
+    local required_commands=("pvesh" "jq" "curl" "wget" "bc")
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            msg_error "Required command '$cmd' not found. Please install it first."
+            exit 1
+        fi
+    done
+    
     # Check available storage
-    local available_storage=$(pvs --noheadings -o pv_free --units g | head -1 | tr -d ' G')
+    local available_storage=$(pvs --noheadings -o pv_free --units g | head -1 | tr -d ' G' 2>/dev/null || echo "0")
     if (( $(echo "$available_storage < 50" | bc -l) )); then
-        msg_warn "Low storage space detected. Recommended: 50GB+ available"
+        msg_warn "Low storage space detected. Available: ${available_storage}GB, Recommended: 50GB+"
+    fi
+    
+    # Check if template exists
+    if ! pveam available --section system | grep -q "$TEMPLATE"; then
+        msg_warn "Template $TEMPLATE may not be available. Checking local storage..."
+        if ! pveam list local | grep -q "$TEMPLATE"; then
+            msg_error "Template $TEMPLATE not found. Please download it first with:"
+            msg_error "pveam download local $TEMPLATE"
+            exit 1
+        fi
     fi
     
     msg_ok "Requirements check passed"
@@ -104,10 +139,24 @@ function check_requirements() {
 
 function get_next_vmid() {
     local vmid=200
-    while pct status "$vmid" &>/dev/null || qm status "$vmid" &>/dev/null; do
+    local max_attempts=100
+    local attempts=0
+    
+    while [ $attempts -lt $max_attempts ]; do
+        # Check both LXC containers and VMs
+        if ! pct status "$vmid" &>/dev/null && ! qm status "$vmid" &>/dev/null; then
+            # Double-check by listing all VMs/containers
+            if ! pvesh get /cluster/resources --type vm --output-format json | jq -r '.[].vmid' | grep -q "^${vmid}$" 2>/dev/null; then
+                echo "$vmid"
+                return 0
+            fi
+        fi
         ((vmid++))
+        ((attempts++))
     done
-    echo "$vmid"
+    
+    msg_error "Could not find available VMID after $max_attempts attempts"
+    exit 1
 }
 
 function collect_info() {
@@ -120,11 +169,24 @@ function collect_info() {
     read -p "Enter CT ID (default: $suggested_ctid): " input_ctid
     CTID=${input_ctid:-$suggested_ctid}
     
-    # Validate CTID
+    # Comprehensive CTID validation
     if pct status "$CTID" &>/dev/null; then
-        msg_error "Container ID $CTID already exists"
+        msg_error "LXC Container ID $CTID already exists"
         exit 1
     fi
+    
+    if qm status "$CTID" &>/dev/null; then
+        msg_error "VM ID $CTID already exists"
+        exit 1
+    fi
+    
+    # Final check using cluster resources
+    if pvesh get /cluster/resources --type vm --output-format json | jq -r '.[].vmid' | grep -q "^${CTID}$" 2>/dev/null; then
+        msg_error "VM/Container ID $CTID is already in use according to cluster resources"
+        exit 1
+    fi
+    
+    msg_ok "Container ID $CTID is available"
     
     # Get hostname
     read -p "Enter hostname (default: $HOSTNAME): " input_hostname
@@ -187,8 +249,14 @@ function collect_info() {
 function create_container() {
     msg_info "Creating LXC container..."
     
+    # Final safety check before creation
+    if pct status "$CTID" &>/dev/null || qm status "$CTID" &>/dev/null; then
+        msg_error "CRITICAL: Container/VM $CTID exists just before creation. Aborting to prevent data loss."
+        exit 1
+    fi
+    
     # Create container
-    pct create "$CTID" "$TEMPLATE" \
+    if pct create "$CTID" "$TEMPLATE" \
         --hostname "$HOSTNAME" \
         --cores "$CORES" \
         --memory "$MEMORY" \
@@ -198,21 +266,36 @@ function create_container() {
         --unprivileged "$PRIVILEGED" \
         --features nesting=1,keyctl=1 \
         --onboot 1 \
-        --start "$START_AFTER_CREATE"
-    
-    msg_ok "Container created successfully"
+        --start "$START_AFTER_CREATE"; then
+        
+        # Mark that we successfully created this container
+        CONTAINER_CREATED="true"
+        msg_ok "Container created successfully"
+    else
+        msg_error "Failed to create container $CTID"
+        exit 1
+    fi
     
     # Wait for container to be ready
     msg_info "Waiting for container to be ready..."
     sleep 10
     
     # Check if container is running
-    if ! pct status "$CTID" | grep -q "running"; then
-        msg_error "Container failed to start"
-        exit 1
-    fi
+    local max_wait=60
+    local wait_time=0
+    while [ $wait_time -lt $max_wait ]; do
+        if pct status "$CTID" | grep -q "running"; then
+            msg_ok "Container is running"
+            return 0
+        fi
+        sleep 5
+        wait_time=$((wait_time + 5))
+        msg_info "Waiting for container to start... ($wait_time/${max_wait}s)"
+    done
     
-    msg_ok "Container is running"
+    msg_error "Container failed to start within $max_wait seconds"
+    msg_error "Container status: $(pct status "$CTID" 2>/dev/null || echo 'unknown')"
+    exit 1
 }
 
 function install_dependencies() {
