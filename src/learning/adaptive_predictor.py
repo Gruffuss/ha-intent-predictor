@@ -50,9 +50,10 @@ class AdaptiveOccupancyPredictor:
             memory_limit=config.get('memory_limit', 6000)
         )
         
-        # Storage backends
-        self.timeseries_db = TimescaleDBManager(config.get('database_url'))
-        self.feature_store = RedisFeatureStore(config.get('redis_url'))
+        # Storage backends - use passed instances from config
+        self.timeseries_db = config.get('timeseries_db')
+        self.feature_store = config.get('feature_store')
+        self.model_store = config.get('model_store')
         
         # Multi-horizon prediction
         self.rooms = config.get('rooms', ['living_kitchen', 'bedroom', 'office', 'bathroom', 'small_bathroom'])
