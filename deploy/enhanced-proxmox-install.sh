@@ -695,10 +695,10 @@ function setup_security() {
     
     # Test SSH connectivity
     test_and_report \
-        \"pct exec $CTID -- systemctl is-active ssh\" \
-        \"SSH service\" \
-        \"SSH service is running\" \
-        \"SSH service failed to start\"
+        "pct exec $CTID -- systemctl is-active ssh" \
+        "SSH service" \
+        "SSH service is running" \
+        "SSH service failed to start"
 }
 
 function install_docker() {
