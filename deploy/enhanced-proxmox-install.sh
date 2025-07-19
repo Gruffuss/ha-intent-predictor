@@ -210,24 +210,50 @@ function show_resource_usage() {
 }
 
 function cleanup() {
+    # Disable error exit during cleanup to prevent recursive failures
+    set +e
+    
+    echo "[DEBUG] Cleanup function called"
+    echo "[DEBUG] CTID='${CTID:-}', CONTAINER_CREATED='${CONTAINER_CREATED:-}', HOSTNAME='${HOSTNAME:-}'"
+    
     # Only cleanup if we created the container in this session
-    if [ -n "$CTID" ] && [ "$CONTAINER_CREATED" = "true" ] && pct status "$CTID" &>/dev/null; then
-        msg_warn "Cleaning up failed installation for container $CTID..."
+    if [ -n "${CTID:-}" ] && [ "${CONTAINER_CREATED:-}" = "true" ]; then
+        echo "[CLEANUP] Starting cleanup for container $CTID..."
         
-        # Double-check this is our container by checking if it has our hostname
-        local container_hostname=$(pct exec "$CTID" -- hostname 2>/dev/null || echo "")
-        if [ "$container_hostname" = "$HOSTNAME" ]; then
-            msg_info "Stopping and removing container $CTID (hostname: $container_hostname)"
-            pct stop "$CTID" 2>/dev/null || true
-            pct destroy "$CTID" 2>/dev/null || true
-            msg_ok "Cleanup completed"
+        # Check if container exists
+        if pct status "$CTID" &>/dev/null; then
+            echo "[CLEANUP] Container $CTID exists, checking if we should remove it"
+            
+            # Double-check this is our container by checking hostname
+            local container_hostname
+            container_hostname=$(pct exec "$CTID" -- hostname 2>/dev/null || echo "")
+            echo "[CLEANUP] Container hostname: '$container_hostname', Expected: '${HOSTNAME:-}'"
+            
+            if [ "$container_hostname" = "${HOSTNAME:-}" ] || [ -z "$container_hostname" ]; then
+                echo "[CLEANUP] Hostname matches or is empty, proceeding with cleanup"
+                echo "[CLEANUP] Stopping container $CTID..."
+                pct stop "$CTID" 2>/dev/null || echo "[CLEANUP] Failed to stop container (may already be stopped)"
+                
+                echo "[CLEANUP] Destroying container $CTID..."
+                if pct destroy "$CTID" 2>/dev/null; then
+                    echo "[CLEANUP] ✓ Container $CTID successfully removed"
+                else
+                    echo "[CLEANUP] ✗ Failed to destroy container $CTID"
+                fi
+            else
+                echo "[CLEANUP] ✗ Safety check failed: Container hostname '$container_hostname' != expected '${HOSTNAME:-}'"
+                echo "[CLEANUP] ✗ Container $CTID was NOT removed for safety"
+            fi
         else
-            msg_error "Safety check failed: Container $CTID hostname '$container_hostname' does not match expected '$HOSTNAME'"
-            msg_error "Manual cleanup required. Container $CTID was NOT removed for safety."
+            echo "[CLEANUP] Container $CTID does not exist or is not accessible"
         fi
-    elif [ -n "$CTID" ]; then
-        msg_info "No cleanup needed - container $CTID was not created in this session"
+    elif [ -n "${CTID:-}" ]; then
+        echo "[CLEANUP] No cleanup needed - container $CTID was not created in this session"
+    else
+        echo "[CLEANUP] No container ID to cleanup"
     fi
+    
+    echo "[DEBUG] Cleanup function completed"
 }
 
 function detect_ubuntu_template() {
@@ -915,13 +941,8 @@ EOF
             echo "[DEBUG] PostgreSQL container exists but not running, waiting..."
         else
             # Container is running, test readiness
-            # Temporarily disable exit on error for this check
-            set +e
-            pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null
-            local pg_ready_result=$?
-            set -e
-            
-            if [ $pg_ready_result -eq 0 ]; then
+            # Use a safer approach that doesn't interfere with global error handling
+            if pct exec "$CTID" -- docker exec ha-predictor-postgres pg_isready -U ha_predictor &>/dev/null || true; then
                 msg_ok "PostgreSQL is ready"
                 break
             else
@@ -1346,17 +1367,39 @@ function parse_arguments() {
     done
 }
 
+# Global error handler
+function handle_error() {
+    local exit_code=$?
+    local line_no=$1
+    echo
+    echo "[ERROR] Script failed at line $line_no with exit code $exit_code"
+    echo "[ERROR] Current function: ${FUNCNAME[1]:-main}"
+    echo "[ERROR] Command that failed: ${BASH_COMMAND}"
+    cleanup
+    exit $exit_code
+}
+
+# Global interrupt handler  
+function handle_interrupt() {
+    echo
+    echo "[INFO] Script interrupted by user"
+    cleanup
+    exit 130
+}
+
+# Set up global error handling immediately
+set -eE  # Exit on error, inherit ERR trap in functions and subshells
+set -u   # Exit on undefined variables
+set -o pipefail  # Exit on pipe failures
+trap 'handle_error $LINENO' ERR
+trap 'handle_interrupt' INT TERM
+
 # Main installation flow
 function main() {
     echo "[DEBUG] Starting main function with args: $@"
     # Parse command line arguments first
     parse_arguments "$@"
     echo "[DEBUG] Arguments parsed successfully"
-    
-    # Set up comprehensive error handling
-    set -euo pipefail
-    trap 'echo "[ERROR] Script failed at line $LINENO. Exit code: $?"; cleanup; exit 1' ERR
-    trap 'echo "[INFO] Script interrupted by user"; cleanup; exit 130' INT TERM
     
     echo "[DEBUG] Displaying header..."
     header
