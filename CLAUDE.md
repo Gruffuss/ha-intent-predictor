@@ -1,5 +1,47 @@
 # ML Occupancy Prediction System - Implementation Guide
 
+## 🚀 DEPLOYED SYSTEM ACCESS
+
+**Current Installation**: Container ID 200 on Proxmox, IP: `192.168.51.10`
+
+### Quick Access Commands (Password-Free)
+```bash
+# Monitor system status
+ssh ha-predictor '/opt/ha-intent-predictor/scripts/remote-monitor.sh show'
+
+# Get JSON status for programmatic access
+ssh ha-predictor '/opt/ha-intent-predictor/scripts/remote-monitor.sh json'
+
+# Check Docker services
+ssh ha-predictor 'cd /opt/ha-intent-predictor && docker compose ps'
+
+# View service logs
+ssh ha-predictor 'cd /opt/ha-intent-predictor && docker compose logs --tail 20'
+
+# SSH into container directly
+ssh ha-predictor
+
+# Restart services if needed
+ssh ha-predictor 'cd /opt/ha-intent-predictor && docker compose restart'
+```
+
+### Service Endpoints
+- **PostgreSQL**: `192.168.51.10:5432` (user: `ha_predictor`, db: `ha_predictor`, password: `hapredictor_db_pass`)
+- **Redis**: `192.168.51.10:6379`
+- **Kafka**: `192.168.51.10:9092`
+- **Zookeeper**: `192.168.51.10:2181`
+- **Web Health Check**: `http://192.168.51.10/health`
+
+### SSH Configuration
+- **SSH Config**: `~/.ssh/config` contains `ha-predictor` host entry
+- **Private Key**: `~/.ssh/ha-predictor`
+- **No Password Required**: Key-based authentication configured
+
+### Container Credentials
+- **SSH User**: `root`
+- **SSH Password**: `hapredictor123` (backup, key auth preferred)
+- **Container Management**: `pct enter 200` (from Proxmox host)
+
 ## Executive Summary
 
 This guide details the implementation of an adaptive ML-based occupancy prediction system designed to run on a Proxmox LXC container (Intel N200, 4 cores, 8GB RAM). The system learns occupancy patterns dynamically without any hardcoded schedules, predicting room occupancy 2 hours ahead for preheating and 15 minutes ahead for precooling.
