@@ -29,7 +29,8 @@ class ContinuousLearningModel:
             ),
             'hoeffding_tree': tree.HoeffdingTreeClassifier(
                 grace_period=10,
-                split_confidence=1e-5
+                delta=1e-5,
+                tau=0.05
             ),
             'logistic': linear_model.LogisticRegression(
                 l2=0.1
