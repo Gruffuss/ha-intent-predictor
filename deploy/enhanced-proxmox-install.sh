@@ -548,10 +548,13 @@ function create_container() {
     msg_ok "Container is running and ready"
     
     # Get container IP
+    echo "[DEBUG] Attempting to get container IP..."
     local container_ip=""
-    attempts=0
-    while [ $attempts -lt 30 ] && [ -z "$container_ip" ]; do
+    local attempts=0
+    while [ $attempts -lt 10 ] && [ -z "$container_ip" ]; do
+        echo "[DEBUG] IP detection attempt $((attempts + 1))/10"
         container_ip=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+        echo "[DEBUG] Got IP: '$container_ip'"
         if [ -z "$container_ip" ]; then
             sleep 2
             ((attempts++))
@@ -561,11 +564,14 @@ function create_container() {
     if [ -n "$container_ip" ]; then
         msg_ok "Container IP: $container_ip"
     else
-        msg_warn "Could not determine container IP"
+        msg_warn "Could not determine container IP after $attempts attempts"
     fi
+    
+    echo "[DEBUG] create_container function completed"
 }
 
 function install_dependencies() {
+    echo "[DEBUG] Starting install_dependencies function"
     step_header "Installing System Dependencies"
     
     msg_progress "Updating package lists..."
