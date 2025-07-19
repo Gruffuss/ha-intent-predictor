@@ -80,10 +80,11 @@ function progress_bar() {
     local completed=$((current * width / total))
     local remaining=$((width - completed))
     
-    echo "[DEBUG] Displaying progress bar..."
+    echo "[DEBUG] Displaying simplified progress bar..."
+    # Use simple ASCII characters instead of Unicode
     printf "\n${CYAN}Progress: ["
-    printf "%*s" $completed | tr ' ' '█'
-    printf "%*s" $remaining | tr ' ' '░'
+    printf "%*s" $completed | tr ' ' '#'
+    printf "%*s" $remaining | tr ' ' '-'
     printf "] %d%% (%d/%d)${NC}\n" $percentage $current $total
     echo "[DEBUG] Progress bar printf completed"
 }
