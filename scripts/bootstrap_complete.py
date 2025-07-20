@@ -196,9 +196,9 @@ class CompleteSystemBootstrap:
         
         # Initialize Redis feature store with proper class name
         print("  - Setting up Redis feature store...")
-        self.components['feature_store'] = RedisFeatureStore(
-            self.config.get('redis')
-        )
+        redis_config = self.config.get('redis')
+        redis_url = f"redis://{redis_config['host']}:{redis_config['port']}/{redis_config['db']}"
+        self.components['feature_store'] = RedisFeatureStore(redis_url)
         await self.components['feature_store'].initialize()
         print("    ✓ Redis feature store initialized")
         
