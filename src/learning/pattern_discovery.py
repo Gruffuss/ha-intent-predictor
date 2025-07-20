@@ -390,7 +390,8 @@ class Pattern:
         self.sequences = sequences
         self.time_window = time_window
         self.strength = strength
-        self.discovered_at = datetime.now()
+        from datetime import timezone
+        self.discovered_at = datetime.now(timezone.utc)
     
     def __hash__(self):
         return hash((str(self.sequences), self.time_window))
@@ -406,7 +407,8 @@ class NegativePattern:
     def __init__(self, pattern: str, strength: float):
         self.pattern = pattern
         self.strength = strength
-        self.discovered_at = datetime.now()
+        from datetime import timezone
+        self.discovered_at = datetime.now(timezone.utc)
     
     def __hash__(self):
         return hash(self.pattern)

@@ -6,7 +6,7 @@ Implements the sophisticated cat detection system from CLAUDE.md
 import logging
 from collections import defaultdict
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 from river import stats
 
@@ -97,8 +97,8 @@ class AdaptiveCatDetector:
             curr = sequence[i]
             next_event = sequence[i + 1]
             
-            curr_time = curr.get('timestamp', datetime.now())
-            next_time = next_event.get('timestamp', datetime.now())
+            curr_time = curr.get('timestamp', datetime.now(timezone.utc))
+            next_time = next_event.get('timestamp', datetime.now(timezone.utc))
             
             if isinstance(curr_time, str):
                 curr_time = datetime.fromisoformat(curr_time.replace('Z', '+00:00'))
@@ -175,8 +175,8 @@ class AdaptiveCatDetector:
             return features
         
         # Calculate total duration
-        first_time = sequence[0].get('timestamp', datetime.now())
-        last_time = sequence[-1].get('timestamp', datetime.now())
+        first_time = sequence[0].get('timestamp', datetime.now(timezone.utc))
+        last_time = sequence[-1].get('timestamp', datetime.now(timezone.utc))
         
         if isinstance(first_time, str):
             first_time = datetime.fromisoformat(first_time.replace('Z', '+00:00'))
@@ -226,8 +226,8 @@ class AdaptiveCatDetector:
             if next_room in ['bathroom', 'small_bathroom']:
                 door_entity = self.door_constraints.get(next_room)
                 if door_entity:
-                    curr_time = curr.get('timestamp', datetime.now())
-                    next_time = next_event.get('timestamp', datetime.now())
+                    curr_time = curr.get('timestamp', datetime.now(timezone.utc))
+                    next_time = next_event.get('timestamp', datetime.now(timezone.utc))
                     
                     # Note: This needs to be called from an async context with database
                     # For now, check if we have database access (this method needs to be async)
@@ -394,8 +394,8 @@ class AdaptiveCatDetector:
     
     def _get_time_diff(self, event1: Dict[str, Any], event2: Dict[str, Any]) -> float:
         """Get time difference between two events in seconds"""
-        time1 = event1.get('timestamp', datetime.now())
-        time2 = event2.get('timestamp', datetime.now())
+        time1 = event1.get('timestamp', datetime.now(timezone.utc))
+        time2 = event2.get('timestamp', datetime.now(timezone.utc))
         
         if isinstance(time1, str):
             time1 = datetime.fromisoformat(time1.replace('Z', '+00:00'))

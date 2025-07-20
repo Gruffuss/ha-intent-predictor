@@ -371,8 +371,9 @@ class HADataStream:
                                     continue
                                 
                                 # Queue event for processing
+                                from datetime import timezone
                                 await self.event_queue.put({
-                                    'timestamp': datetime.now(),
+                                    'timestamp': datetime.now(timezone.utc),
                                     'entity_id': event_data['entity_id'],
                                     'state': event_data['new_state']['state'],
                                     'attributes': event_data['new_state']['attributes'],
@@ -710,8 +711,9 @@ class HomeAssistantAPI:
                                     continue
                                 
                                 # Yield enriched event
+                                from datetime import timezone
                                 enriched_event = {
-                                    'timestamp': datetime.now(),
+                                    'timestamp': datetime.now(timezone.utc),
                                     'entity_id': event_data['entity_id'],
                                     'state': event_data['new_state']['state'],
                                     'attributes': event_data['new_state']['attributes'],

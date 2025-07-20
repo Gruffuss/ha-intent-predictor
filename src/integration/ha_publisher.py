@@ -6,7 +6,7 @@ Implements the exact DynamicHAIntegration from CLAUDE.md
 import logging
 import asyncio
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import aiohttp
 import json
 
@@ -109,7 +109,7 @@ class DynamicHAIntegration:
                     'confidence': 1 - prediction['uncertainty'],
                     'contributing_factors': prediction.get('factors', {}),
                     'model_agreement': prediction.get('model_agreement', 0.5),
-                    'last_updated': datetime.now().isoformat(),
+                    'last_updated': datetime.now(timezone.utc).isoformat(),
                     'horizon_minutes': horizon,
                     'explanation': prediction.get('explanation', ''),
                     'method': prediction.get('method', 'adaptive_ml'),
@@ -121,7 +121,7 @@ class DynamicHAIntegration:
             # Store state for tracking
             self.entity_states[entity_id] = {
                 'state': prediction['probability'],
-                'last_updated': datetime.now(),
+                'last_updated': datetime.now(timezone.utc),
                 'prediction_data': prediction
             }
     
@@ -144,7 +144,7 @@ class DynamicHAIntegration:
             self.prediction_entities[entity_id] = {
                 'room_id': room_id,
                 'horizon': horizon,
-                'created_at': datetime.now(),
+                'created_at': datetime.now(timezone.utc),
                 'config': entity_config
             }
             
@@ -170,7 +170,7 @@ class DynamicHAIntegration:
                 'trend_score': trend_data['trend_score'],
                 'sample_period': '24h',
                 'room_id': room_id,
-                'last_calculated': datetime.now().isoformat()
+                'last_calculated': datetime.now(timezone.utc).isoformat()
             }
         })
         
@@ -186,7 +186,7 @@ class DynamicHAIntegration:
                 'confidence': anomaly_data['confidence'],
                 'description': anomaly_data['description'],
                 'room_id': room_id,
-                'detected_at': datetime.now().isoformat()
+                'detected_at': datetime.now(timezone.utc).isoformat()
             }
         })
         
@@ -433,7 +433,7 @@ class DynamicHAIntegration:
             
         try:
             from datetime import timedelta
-            end_time = datetime.now()
+            end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(days=days)
             
             # Get historical events for the specified time period
@@ -498,7 +498,7 @@ class DynamicHAIntegration:
     async def cleanup_stale_entities(self, max_age_hours: int = 24):
         """Clean up stale prediction entities"""
         try:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
             stale_entities = []
             
             for entity_id, entity_info in self.entity_states.items():
@@ -530,7 +530,7 @@ class DynamicHAIntegration:
             'rooms_integrated': list(self.automation_helpers.keys()),
             'last_update': max(
                 (state['last_updated'] for state in self.entity_states.values()),
-                default=datetime.now()
+                default=datetime.now(timezone.utc)
             ).isoformat()
         }
 
