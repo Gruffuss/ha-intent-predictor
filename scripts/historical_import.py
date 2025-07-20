@@ -153,12 +153,16 @@ class HistoricalDataImporter:
         logger.info("Initializing historical data importer...")
         
         # Initialize TimescaleDB
-        self.timeseries_db = TimescaleDBManager(self.config.get('database.timescale'))
-        await self.timeseries_db.connect()
+        db_config = self.config.get('database.timescale')
+        db_connection_string = f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+        self.timeseries_db = TimescaleDBManager(db_connection_string)
+        await self.timeseries_db.initialize()
         
         # Initialize Redis for feature caching
-        self.feature_store = RedisFeatureStore(self.config.get('redis'))
-        await self.feature_store.connect()
+        redis_config = self.config.get('redis')
+        redis_url = f"redis://{redis_config['host']}:{redis_config['port']}/{redis_config['db']}"
+        self.feature_store = RedisFeatureStore(redis_url)
+        await self.feature_store.initialize()
         
         # Initialize data enricher
         self.data_enricher = DynamicFeatureDiscovery(
