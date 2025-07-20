@@ -180,6 +180,23 @@ class HistoricalDataImporter:
         
         logger.info("Initialization complete")
     
+    async def _query_database(self, query: str, params: dict = None) -> List[Dict]:
+        """Generic database query method to replace missing fetch method"""
+        try:
+            async with self.timeseries_db.session_factory() as session:
+                from sqlalchemy import text
+                result = await session.execute(text(query), params or {})
+                rows = result.fetchall()
+                
+                # Convert rows to dictionaries
+                if rows:
+                    columns = result.keys()
+                    return [dict(zip(columns, row)) for row in rows]
+                return []
+        except Exception as e:
+            logger.error(f"Database query failed: {e}")
+            return []
+    
     async def create_tables(self):
         """Create TimescaleDB tables for historical data"""
         logger.info("Creating database tables...")
@@ -549,7 +566,7 @@ class HistoricalDataImporter:
         logger.info("Generating occupancy inferences...")
         
         # Get all rooms with sensors
-        rooms = await self.timeseries_db.fetch("""
+        rooms = await self._query_database("""
             SELECT DISTINCT room FROM sensor_events 
             WHERE room IS NOT NULL
         """)
@@ -568,7 +585,7 @@ class HistoricalDataImporter:
         """Infer bathroom occupancy from entrance and door sensors"""
         
         # Get entrance and door events
-        events = await self.timeseries_db.fetch("""
+        events = await self._query_database("""
             SELECT timestamp, entity_id, state, zone_type
             FROM sensor_events
             WHERE room = $1
@@ -614,7 +631,7 @@ class HistoricalDataImporter:
         """Infer occupancy for rooms with presence sensors"""
         
         # Get presence events
-        events = await self.timeseries_db.fetch("""
+        events = await self._query_database("""
             SELECT timestamp, entity_id, state, zone_type
             FROM sensor_events
             WHERE room = $1
@@ -676,7 +693,7 @@ class HistoricalDataImporter:
         logger.info("Detecting anomalies...")
         
         # Look for impossible movements
-        anomalies = await self.timeseries_db.fetch("""
+        anomalies = await self._query_database("""
             WITH rapid_movements AS (
                 SELECT 
                     e1.timestamp as t1,
@@ -722,7 +739,7 @@ class HistoricalDataImporter:
         logger.info("Creating initial feature cache...")
         
         # Cache basic room statistics
-        rooms = await self.timeseries_db.fetch("""
+        rooms = await self._query_database("""
             SELECT 
                 room,
                 COUNT(*) as event_count,
@@ -741,7 +758,7 @@ class HistoricalDataImporter:
             )
         
         # Cache person-specific statistics
-        person_stats = await self.timeseries_db.fetch("""
+        person_stats = await self._query_database("""
             SELECT 
                 person,
                 COUNT(*) as event_count,
@@ -796,7 +813,7 @@ class HistoricalDataImporter:
         """Assess the quality of imported data"""
         
         # Check for data gaps
-        gaps = await self.timeseries_db.fetch("""
+        gaps = await self._query_database("""
             SELECT 
                 room,
                 COUNT(*) as event_count,
@@ -815,7 +832,7 @@ class HistoricalDataImporter:
     async def get_room_summary(self) -> Dict:
         """Get summary statistics by room"""
         
-        room_stats = await self.timeseries_db.fetch("""
+        room_stats = await self._query_database("""
             SELECT 
                 room,
                 COUNT(*) as events,
@@ -832,7 +849,7 @@ class HistoricalDataImporter:
     async def get_sensor_coverage(self) -> Dict:
         """Get sensor coverage statistics"""
         
-        coverage = await self.timeseries_db.fetch("""
+        coverage = await self._query_database("""
             SELECT 
                 sensor_type,
                 COUNT(DISTINCT entity_id) as sensor_count,
@@ -847,7 +864,7 @@ class HistoricalDataImporter:
     async def get_anomaly_summary(self) -> Dict:
         """Get summary of detected anomalies"""
         
-        anomalies = await self.timeseries_db.fetch("""
+        anomalies = await self._query_database("""
             SELECT 
                 pattern_type,
                 COUNT(*) as count,
