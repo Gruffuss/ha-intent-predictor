@@ -28,6 +28,20 @@ class DynamicHAIntegration:
     async def initialize(self):
         """Initialize HA integration - ready for predictions"""
         logger.info("HA integration initialized successfully")
+    
+    async def run_publisher(self):
+        """Main publisher loop - continuously publish predictions to HA"""
+        logger.info("Starting HA prediction publisher loop")
+        
+        while True:
+            try:
+                # This would be called by the prediction engine with actual predictions
+                # For now, just wait - real predictions will be pushed via publish_predictions
+                await asyncio.sleep(60)  # Check every minute
+                
+            except Exception as e:
+                logger.error(f"Error in HA publisher loop: {e}")
+                await asyncio.sleep(5)  # Wait before retrying
         
     async def publish_predictions(self, room_id: str, predictions: Dict[int, Dict[str, Any]]):
         """
