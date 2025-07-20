@@ -26,8 +26,9 @@ import aiohttp
 import pandas as pd
 from tqdm import tqdm
 
-# Add src to path
+# Add src and config to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from storage.timeseries_db import TimescaleDBManager
 from storage.feature_store import RedisFeatureStore
