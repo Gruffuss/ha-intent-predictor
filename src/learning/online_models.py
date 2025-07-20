@@ -5,7 +5,7 @@ Implements the adaptive prediction system from CLAUDE.md
 
 import logging
 from collections import defaultdict
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from river import ensemble, tree, metrics, preprocessing, forest, utils
 from river import linear_model
 from river import stats
