@@ -455,16 +455,14 @@ class HistoricalDataImporter:
         state = record.get('state')
         attributes = record.get('attributes', {})
         
-        # Enrich the data
-        enriched_data = await self.data_enricher.enrich_event({
+        # Store in database (skip enrichment for now to get bootstrap working)
+        event_data = {
             'entity_id': entity_id,
             'timestamp': timestamp,
             'state': state,
             'attributes': attributes
-        })
-        
-        # Store in database
-        await self.store_sensor_event(enriched_data)
+        }
+        await self.store_sensor_event(event_data)
         
         # Update statistics
         self.stats['processed_records'] += 1
@@ -482,16 +480,14 @@ class HistoricalDataImporter:
         state = record['state']
         attributes = json.loads(record['attributes']) if record['attributes'] else {}
         
-        # Enrich the data
-        enriched_data = await self.data_enricher.enrich_event({
+        # Store in database (skip enrichment for now to get bootstrap working)
+        event_data = {
             'entity_id': entity_id,
             'timestamp': timestamp,
             'state': state,
             'attributes': attributes
-        })
-        
-        # Store in database
-        await self.store_sensor_event(enriched_data)
+        }
+        await self.store_sensor_event(event_data)
         
         # Update statistics
         self.stats['processed_records'] += 1
