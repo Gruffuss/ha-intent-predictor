@@ -165,10 +165,7 @@ class HistoricalDataImporter:
         await self.feature_store.initialize()
         
         # Initialize data enricher
-        self.data_enricher = DynamicFeatureDiscovery(
-            sensors_config=self.sensors_config,
-            rooms_config=self.rooms_config
-        )
+        self.data_enricher = DynamicFeatureDiscovery()
         
         # Create database tables
         await self.create_tables()
