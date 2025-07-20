@@ -29,10 +29,10 @@ from tqdm import tqdm
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from storage.timeseries_db import TimeSeriesDB
-from storage.feature_store import FeatureStore
+from storage.timeseries_db import TimescaleDBManager
+from storage.feature_store import RedisFeatureStore
 from config.config_loader import ConfigLoader
-from ingestion.data_enricher import DataEnricher
+from ingestion.data_enricher import DynamicFeatureDiscovery
 
 # Configure logging
 logging.basicConfig(
@@ -78,15 +78,15 @@ class HistoricalDataImporter:
         logger.info("Initializing historical data importer...")
         
         # Initialize TimescaleDB
-        self.timeseries_db = TimeSeriesDB(self.config.get('database.timescale'))
+        self.timeseries_db = TimescaleDBManager(self.config.get('database.timescale'))
         await self.timeseries_db.connect()
         
         # Initialize Redis for feature caching
-        self.feature_store = FeatureStore(self.config.get('redis'))
+        self.feature_store = RedisFeatureStore(self.config.get('redis'))
         await self.feature_store.connect()
         
         # Initialize data enricher
-        self.data_enricher = DataEnricher(
+        self.data_enricher = DynamicFeatureDiscovery(
             sensors_config=self.sensors_config,
             rooms_config=self.rooms_config
         )
