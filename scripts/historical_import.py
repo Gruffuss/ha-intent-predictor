@@ -167,8 +167,16 @@ class HistoricalDataImporter:
         # Initialize data enricher
         self.data_enricher = DynamicFeatureDiscovery()
         
-        # Create database tables
-        await self.create_tables()
+        # Skip table creation if tables already exist (bootstrap creates them)
+        try:
+            # Check if main table exists
+            async with self.timeseries_db.engine.begin() as conn:
+                from sqlalchemy import text
+                result = await conn.execute(text("SELECT COUNT(*) FROM sensor_events LIMIT 1;"))
+                print("  ✓ Using existing database tables")
+        except:
+            # Tables don't exist, create them
+            await self.create_tables()
         
         logger.info("Initialization complete")
     
