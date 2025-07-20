@@ -491,13 +491,3 @@ class HorizonOptimizer:
         self.horizon_performance = defaultdict(lambda: RunningStats())
         self.tested_horizons = set()
     
-    def test_horizon_accuracy(self, horizon_minutes: int, historical_data) -> float:
-        """Test accuracy for a specific prediction horizon"""
-        # This would implement the horizon testing from CLAUDE.md
-        # For now, return placeholder
-        return 0.5
-    
-    def find_accuracy_breakpoints(self, results: Dict[int, float]) -> list:
-        """Find natural breakpoints where accuracy drops significantly"""
-        # Implementation would analyze the results curve for breakpoints
-        return [15, 120]  # Placeholder
