@@ -25,6 +25,10 @@ class DynamicHAIntegration:
         self.automation_helpers = {}
         self.entity_states = {}
         
+    async def initialize(self):
+        """Initialize HA integration - ready for predictions"""
+        logger.info("HA integration initialized successfully")
+        
     async def publish_predictions(self, room_id: str, predictions: Dict[int, Dict[str, Any]]):
         """
         Create dynamic entities based on discovered patterns
