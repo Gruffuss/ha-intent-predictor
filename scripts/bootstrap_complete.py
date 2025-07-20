@@ -179,8 +179,10 @@ class CompleteSystemBootstrap:
         
         # Initialize TimescaleDB with proper class name
         print("  - Setting up TimescaleDB...")
+        db_config = self.config.get('database.timescale')
+        db_connection_string = f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
         self.components['timeseries_db'] = TimescaleDBManager(
-            self.config.get('database.timescale')
+            db_connection_string
         )
         await self.components['timeseries_db'].initialize()
         
