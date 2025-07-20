@@ -55,8 +55,9 @@ class HistoricalDataImporter:
     
     def __init__(self, config_path: str = "config/system.yaml"):
         self.config = ConfigLoader(config_path)
-        self.sensors_config = self.config.get_sensors()
-        self.rooms_config = self.config.get_rooms()
+        # Use sensor groups directly since ConfigLoader doesn't have get_sensors method
+        self.sensors_config = self._get_default_sensors()
+        self.rooms_config = self._get_default_rooms()
         
         # Initialize components
         self.timeseries_db = None
@@ -73,6 +74,79 @@ class HistoricalDataImporter:
             'person_specific_counts': {'anca': 0, 'vladimir': 0},
             'anomalies_detected': 0
         }
+    
+    def _get_default_sensors(self):
+        """Get default sensor configuration"""
+        return {
+            'presence_zones': [
+                'binary_sensor.presence_livingroom_full',
+                'binary_sensor.presence_livingroom_couch',
+                'binary_sensor.kitchen_pressence_full_kitchen',
+                'binary_sensor.kitchen_pressence_stove',
+                'binary_sensor.kitchen_pressence_sink',
+                'binary_sensor.kitchen_pressence_dining_table',
+                'binary_sensor.bedroom_presence_sensor_full_bedroom',
+                'binary_sensor.bedroom_presence_sensor_anca_bed_side',
+                'binary_sensor.bedroom_vladimir_bed_side',
+                'binary_sensor.bedroom_floor',
+                'binary_sensor.bedroom_entrance',
+                'binary_sensor.office_presence_full_office',
+                'binary_sensor.office_presence_anca_desk',
+                'binary_sensor.office_presence_vladimir_desk',
+                'binary_sensor.office_entrance',
+                'binary_sensor.bathroom_entrance',
+                'binary_sensor.presence_small_bathroom_entrance',
+                'binary_sensor.guest_bedroom_entrance',
+                'binary_sensor.presence_ground_floor_hallway',
+                'binary_sensor.upper_hallway',
+                'binary_sensor.upper_hallway_upstairs',
+                'binary_sensor.upper_hallway_downstairs',
+                'binary_sensor.presence_stairs_up_ground_floor'
+            ],
+            'doors': [
+                'binary_sensor.bathroom_door_sensor_contact',
+                'binary_sensor.bedroom_door_sensor_contact',
+                'binary_sensor.office_door_sensor_contact',
+                'binary_sensor.guest_bedroom_door_sensor_contact',
+                'binary_sensor.small_bathroom_door_sensor_contact'
+            ],
+            'climate': [
+                'sensor.livingroom_env_sensor_temperature',
+                'sensor.livingroom_env_sensor_humidity',
+                'sensor.bedroom_env_sensor_temperature',
+                'sensor.bedroom_env_sensor_humidity',
+                'sensor.office_env_sensor_temperature',
+                'sensor.office_env_sensor_humidity',
+                'sensor.bathroom_env_sensor_temperature',
+                'sensor.bathroom_env_sensor_humidity',
+                'sensor.guest_bedroom_env_sensor_temperature',
+                'sensor.guest_bedroom_env_sensor_humidity',
+                'sensor.upper_hallway_env_sensor_temperature',
+                'sensor.upper_hallway_env_sensor_humidity',
+                'sensor.attic_env_sensor_temperature',
+                'sensor.attic_env_sensor_humidity',
+                'sensor.big_bath_env_sensor_temperature',
+                'sensor.big_bath_env_sensor_humidity'
+            ],
+            'light_levels': [
+                'sensor.bedroom_presence_light_level',
+                'sensor.kitchen_pressence_light_level',
+                'sensor.livingroom_pressence_light_level',
+                'sensor.office_presence_light_level',
+                'sensor.upper_hallway_pressence_light_level'
+            ]
+        }
+    
+    def _get_default_rooms(self):
+        """Get default room configuration"""
+        return [
+            'living_kitchen',  # Combined space
+            'bedroom',
+            'office',
+            'bathroom',
+            'small_bathroom',
+            'guest_bedroom'
+        ]
     
     async def initialize(self):
         """Initialize database connections and components"""
