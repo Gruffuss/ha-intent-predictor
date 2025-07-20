@@ -194,7 +194,7 @@ class ContinuousLearningModel:
                 'prediction': pred,
                 'weight': weight,
                 'contribution': contribution,
-                'performance': self.model_performance[name].get() if self.model_performance[name].n > 0 else 0.0
+                'performance': self.model_performance[name].get() if hasattr(self.model_performance[name], 'n') and self.model_performance[name].n > 0 else 0.0
             }
         
         return contributions
@@ -207,7 +207,7 @@ class ContinuousLearningModel:
         }
         
         for name, perf_metric in self.model_performance.items():
-            if perf_metric.n > 0:
+            if hasattr(perf_metric, 'n') and perf_metric.n > 0:
                 summary['models'][name] = {
                     'auc': perf_metric.get(),
                     'sample_count': perf_metric.n
@@ -242,8 +242,8 @@ class ContinuousLearningModel:
                 'serialized_models': serialized_models,
                 'model_performance': {
                     name: {
-                        'n_samples': metric.n,
-                        'value': metric.get() if metric.n > 0 else 0.0
+                        'n_samples': metric.n if hasattr(metric, 'n') else 0,
+                        'value': metric.get() if hasattr(metric, 'n') and metric.n > 0 else 0.0
                     }
                     for name, metric in self.model_performance.items()
                 },

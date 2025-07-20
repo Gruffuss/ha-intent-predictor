@@ -295,25 +295,21 @@ class HADataStream:
                 except ValueError:
                     pass
             
-            # Store in database
-            await self.timeseries_db.execute("""
-                INSERT INTO sensor_events (
-                    timestamp, entity_id, state, numeric_value, attributes,
-                    room, sensor_type, zone_type, zone_info, person, enriched_data
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            """, 
-                enriched_event.timestamp,
-                enriched_event.entity_id,
-                enriched_event.state,
-                numeric_value,
-                json.dumps(enriched_event.attributes),
-                enriched_event.room,
-                enriched_event.sensor_type,
-                enriched_event.derived.get('zone_info', {}).get('zone_type'),
-                json.dumps(enriched_event.derived.get('zone_info', {})),
-                enriched_event.derived.get('zone_info', {}).get('person'),
-                json.dumps(enriched_event.derived)
-            )
+            # Store in database using the correct method
+            event_dict = {
+                "timestamp": enriched_event.timestamp,
+                "entity_id": enriched_event.entity_id,
+                "state": enriched_event.state,
+                "numeric_value": numeric_value,
+                "attributes": enriched_event.attributes,
+                "room": enriched_event.room,
+                "sensor_type": enriched_event.sensor_type,
+                "zone_type": enriched_event.derived.get('zone_info', {}).get('zone_type'),
+                "zone_info": enriched_event.derived.get('zone_info', {}),
+                "person": enriched_event.derived.get('zone_info', {}).get('person'),
+                "enriched_data": enriched_event.derived
+            }
+            await self.timeseries_db.insert_sensor_event(event_dict)
             
         except Exception as e:
             logger.error(f"Error storing event in database: {e}")
@@ -579,8 +575,15 @@ class HADataStream:
         entity_id = event['entity_id']
         current_time = event['timestamp']
         
+        # Ensure we're working with timezone-aware datetimes
+        if current_time.tzinfo is None:
+            from datetime import timezone
+            current_time = current_time.replace(tzinfo=timezone.utc)
+        
         if entity_id in self.last_state_changes:
             last_time = self.last_state_changes[entity_id]
+            if last_time.tzinfo is None:
+                last_time = last_time.replace(tzinfo=timezone.utc)
             delta = (current_time - last_time).total_seconds()
         else:
             delta = 0.0
