@@ -33,11 +33,55 @@ class DynamicHAIntegration:
         """Main publisher loop - continuously publish predictions to HA"""
         logger.info("Starting HA prediction publisher loop")
         
+        # Define rooms to create entities for
+        rooms = ['living_kitchen', 'bedroom', 'office', 'bathroom', 'small_bathroom']
+        horizons = [15, 120]  # 15 min and 2 hour predictions
+        
+        # Create initial prediction entities
+        for room in rooms:
+            for horizon in horizons:
+                entity_id = f"sensor.occupancy_{room}_{horizon}min"
+                await self.create_prediction_entity(entity_id, room, horizon)
+            
+            # Create automation helpers for each room
+            await self.create_automation_helpers(room)
+        
+        logger.info(f"Created prediction entities for {len(rooms)} rooms")
+        
         while True:
             try:
-                # This would be called by the prediction engine with actual predictions
-                # For now, just wait - real predictions will be pushed via publish_predictions
-                await asyncio.sleep(60)  # Check every minute
+                # Publish current entity states and cleanup stale entities
+                await self.cleanup_stale_entities(max_age_hours=24)
+                
+                # Update trend and anomaly entities for each room
+                for room in rooms:
+                    try:
+                        # Update trend entity
+                        trend_data = await self.calculate_occupancy_trend(room)
+                        await self.set_state(f"sensor.occupancy_trend_{room}", {
+                            'state': trend_data.get('trend', 'stable'),
+                            'attributes': trend_data
+                        })
+                        
+                        # Update anomaly detection entity
+                        anomaly_data = await self.detect_anomalous_pattern(room)
+                        await self.set_state(f"binary_sensor.occupancy_anomaly_{room}", {
+                            'state': anomaly_data.get('anomaly_detected', False),
+                            'attributes': anomaly_data
+                        })
+                        
+                        # Update activity level entity
+                        activity_data = await self.calculate_activity_level(room)
+                        await self.set_state(f"sensor.occupancy_activity_{room}", {
+                            'state': activity_data.get('activity_level', 'unknown'),
+                            'attributes': activity_data
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"Error updating entities for room {room}: {e}")
+                
+                # Wait before next update cycle
+                await asyncio.sleep(60)  # Update every minute
                 
             except Exception as e:
                 logger.error(f"Error in HA publisher loop: {e}")
