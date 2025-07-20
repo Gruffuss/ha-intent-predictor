@@ -101,82 +101,94 @@ class HistoricalDataImporter:
         """Create TimescaleDB tables for historical data"""
         logger.info("Creating database tables...")
         
-        # Main sensor events table
-        await self.timeseries_db.execute("""
-            CREATE TABLE IF NOT EXISTS sensor_events (
-                id BIGSERIAL PRIMARY KEY,
-                timestamp TIMESTAMPTZ NOT NULL,
-                entity_id VARCHAR(255) NOT NULL,
-                state VARCHAR(255),
-                numeric_value DOUBLE PRECISION,
-                attributes JSONB,
-                room VARCHAR(100),
-                sensor_type VARCHAR(50),
-                zone_type VARCHAR(50),
-                zone_info JSONB,
-                person VARCHAR(50),
-                enriched_data JSONB,
-                processed_at TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-        
-        # Create hypertable for time-series optimization
-        await self.timeseries_db.execute("""
-            SELECT create_hypertable('sensor_events', 'timestamp', 
-                                   if_not_exists => TRUE,
-                                   chunk_time_interval => INTERVAL '1 day');
-        """)
-        
-        # Create indices for efficient querying
-        indices = [
-            "CREATE INDEX IF NOT EXISTS idx_sensor_events_entity_id ON sensor_events (entity_id, timestamp DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events (room, timestamp DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_sensor_events_person ON sensor_events (person, timestamp DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_sensor_events_zone_type ON sensor_events (zone_type, timestamp DESC);"
-        ]
-        
-        for index_sql in indices:
-            await self.timeseries_db.execute(index_sql)
-        
-        # Pattern discovery table
-        await self.timeseries_db.execute("""
-            CREATE TABLE IF NOT EXISTS discovered_patterns (
-                id BIGSERIAL PRIMARY KEY,
-                room VARCHAR(100) NOT NULL,
-                pattern_type VARCHAR(100) NOT NULL,
-                pattern_data JSONB NOT NULL,
-                significance_score DOUBLE PRECISION,
-                confidence DOUBLE PRECISION,
-                support_count INTEGER,
-                discovered_at TIMESTAMPTZ DEFAULT NOW(),
-                last_validated TIMESTAMPTZ,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-        """)
-        
-        # Room occupancy inference table
-        await self.timeseries_db.execute("""
-            CREATE TABLE IF NOT EXISTS room_occupancy (
-                id BIGSERIAL PRIMARY KEY,
-                timestamp TIMESTAMPTZ NOT NULL,
-                room VARCHAR(100) NOT NULL,
-                occupied BOOLEAN NOT NULL,
-                confidence DOUBLE PRECISION,
-                inference_method VARCHAR(100),
-                supporting_evidence JSONB,
-                person VARCHAR(50),
-                duration_minutes INTEGER,
-                processed_at TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-        
-        # Create hypertable for occupancy data
-        await self.timeseries_db.execute("""
-            SELECT create_hypertable('room_occupancy', 'timestamp',
-                                   if_not_exists => TRUE,
-                                   chunk_time_interval => INTERVAL '1 day');
-        """)
+        async with self.timeseries_db.engine.begin() as conn:
+            from sqlalchemy import text
+            
+            # Main sensor events table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sensor_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    entity_id VARCHAR(255) NOT NULL,
+                    state VARCHAR(255),
+                    numeric_value DOUBLE PRECISION,
+                    attributes JSONB,
+                    room VARCHAR(100),
+                    sensor_type VARCHAR(50),
+                    zone_type VARCHAR(50),
+                    zone_info JSONB,
+                    person VARCHAR(50),
+                    enriched_data JSONB,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """))
+            
+            # Create hypertable for time-series optimization
+            try:
+                await conn.execute(text("""
+                    SELECT create_hypertable('sensor_events', 'timestamp', 
+                                           if_not_exists => TRUE,
+                                           chunk_time_interval => INTERVAL '1 day');
+                """))
+            except Exception as e:
+                logger.warning(f"Hypertable creation failed (may already exist): {e}")
+            
+            # Create indices for efficient querying
+            indices = [
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_entity_id ON sensor_events (entity_id, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events (room, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_person ON sensor_events (person, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_zone_type ON sensor_events (zone_type, timestamp DESC);"
+            ]
+            
+            for index_sql in indices:
+                try:
+                    await conn.execute(text(index_sql))
+                except Exception as e:
+                    logger.warning(f"Index creation failed (may already exist): {e}")
+            
+            # Pattern discovery table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS discovered_patterns (
+                    id BIGSERIAL PRIMARY KEY,
+                    room VARCHAR(100) NOT NULL,
+                    pattern_type VARCHAR(100) NOT NULL,
+                    pattern_data JSONB NOT NULL,
+                    significance_score DOUBLE PRECISION,
+                    confidence DOUBLE PRECISION,
+                    support_count INTEGER,
+                    discovered_at TIMESTAMPTZ DEFAULT NOW(),
+                    last_validated TIMESTAMPTZ,
+                    is_active BOOLEAN DEFAULT TRUE
+                );
+            """))
+            
+            # Room occupancy inference table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS room_occupancy (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room VARCHAR(100) NOT NULL,
+                    occupied BOOLEAN NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    inference_method VARCHAR(100),
+                    supporting_evidence JSONB,
+                    person VARCHAR(50),
+                    duration_minutes INTEGER,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """))
+            
+            # Create hypertable for occupancy data
+            try:
+                await conn.execute(text("""
+                    SELECT create_hypertable('room_occupancy', 'timestamp',
+                                           if_not_exists => TRUE,
+                                           chunk_time_interval => INTERVAL '1 day');
+                """))
+            except Exception as e:
+                logger.warning(f"Room occupancy hypertable creation failed (may already exist): {e}")
         
         logger.info("Database tables created successfully")
     
@@ -412,25 +424,9 @@ class HistoricalDataImporter:
             except ValueError:
                 pass
         
-        # Insert into database
-        await self.timeseries_db.execute("""
-            INSERT INTO sensor_events (
-                timestamp, entity_id, state, numeric_value, attributes,
-                room, sensor_type, zone_type, zone_info, person, enriched_data
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        """, 
-            event_data['timestamp'],
-            event_data['entity_id'],
-            event_data['state'],
-            numeric_value,
-            json.dumps(event_data.get('attributes', {})),
-            event_data.get('room'),
-            event_data.get('sensor_type'),
-            event_data.get('zone_type'),
-            json.dumps(event_data.get('zone_info', {})),
-            event_data.get('person'),
-            json.dumps(event_data.get('enriched_data', {}))
-        )
+        # Insert into database using proper method
+        event_data['numeric_value'] = numeric_value
+        await self.timeseries_db.insert_sensor_event(event_data)
     
     async def post_process_data(self):
         """Post-process imported data for learning"""
@@ -455,11 +451,13 @@ class HistoricalDataImporter:
         logger.info(f"Merging {room1} and {room2} into {new_room}")
         
         # Update room field for combined space
-        await self.timeseries_db.execute("""
-            UPDATE sensor_events 
-            SET room = $1 
-            WHERE room IN ($2, $3)
-        """, new_room, room1, room2)
+        async with self.timeseries_db.engine.begin() as conn:
+            from sqlalchemy import text
+            await conn.execute(text("""
+                UPDATE sensor_events 
+                SET room = :new_room 
+                WHERE room IN (:room1, :room2)
+            """), {'new_room': new_room, 'room1': room1, 'room2': room2})
         
         # Update statistics
         self.stats['room_counts'][new_room] = (
@@ -578,19 +576,21 @@ class HistoricalDataImporter:
     async def store_occupancy_period(self, period: Dict):
         """Store an occupancy period in the database"""
         
-        await self.timeseries_db.execute("""
-            INSERT INTO room_occupancy (
-                timestamp, room, occupied, confidence, 
-                inference_method, duration_minutes
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-        """,
-            period['start_time'],
-            period['room'],
-            True,
-            period['confidence'],
-            period.get('method', 'unknown'),
-            period['duration']
-        )
+        async with self.timeseries_db.engine.begin() as conn:
+            from sqlalchemy import text
+            await conn.execute(text("""
+                INSERT INTO room_occupancy (
+                    timestamp, room, occupied, confidence, 
+                    inference_method, duration_minutes
+                ) VALUES (:start_time, :room, :occupied, :confidence, :method, :duration)
+            """), {
+                'start_time': period['start_time'],
+                'room': period['room'],
+                'occupied': True,
+                'confidence': period['confidence'],
+                'method': period.get('method', 'unknown'),
+                'duration': period['duration']
+            })
     
     async def detect_anomalies(self):
         """Detect anomalies in sensor data (potential cat activity)"""
@@ -623,17 +623,20 @@ class HistoricalDataImporter:
         self.stats['anomalies_detected'] = len(anomalies)
         
         # Store anomalies for later analysis
-        for anomaly in anomalies:
-            await self.timeseries_db.execute("""
-                INSERT INTO discovered_patterns (
-                    room, pattern_type, pattern_data, significance_score
-                ) VALUES ($1, $2, $3, $4)
-            """,
-                'multiple',
-                'rapid_movement_anomaly',
-                json.dumps(dict(anomaly)),
-                0.8
-            )
+        if anomalies:
+            async with self.timeseries_db.engine.begin() as conn:
+                from sqlalchemy import text
+                for anomaly in anomalies:
+                    await conn.execute(text("""
+                        INSERT INTO discovered_patterns (
+                            room, pattern_type, pattern_data, significance_score
+                        ) VALUES (:room, :pattern_type, :pattern_data, :significance_score)
+                    """), {
+                        'room': 'multiple',
+                        'pattern_type': 'rapid_movement_anomaly',
+                        'pattern_data': json.dumps(dict(anomaly)),
+                        'significance_score': 0.8
+                    })
     
     async def create_initial_feature_cache(self):
         """Create initial feature cache in Redis"""

@@ -128,10 +128,12 @@ class CompleteSystemBootstrap:
             # Step 1: Initialize storage infrastructure
             print("\n1. 🏗️  Initializing storage infrastructure...")
             await self._initialize_storage()
+            print("   ✓ Storage infrastructure completed")
             
             # Step 2: Initialize learning components
             print("\n2. 🧠 Initializing adaptive learning components...")
             await self._initialize_learning()
+            print("   ✓ Learning components completed")
             
             # Step 3: Import historical data (CLAUDE.md core requirement)
             print("\n3. 📊 Importing 180 days of historical data...")
@@ -185,9 +187,12 @@ class CompleteSystemBootstrap:
             db_connection_string
         )
         await self.components['timeseries_db'].initialize()
+        print("    ✓ TimescaleDB initialized")
         
         # Create additional database schema
+        print("  - Creating additional database schema...")
         await self._create_database_schema()
+        print("    ✓ Database schema created")
         
         # Initialize Redis feature store with proper class name
         print("  - Setting up Redis feature store...")
@@ -195,6 +200,7 @@ class CompleteSystemBootstrap:
             self.config.get('redis')
         )
         await self.components['feature_store'].initialize()
+        print("    ✓ Redis feature store initialized")
         
         # Initialize model storage
         print("  - Setting up model versioning store...")
@@ -202,6 +208,7 @@ class CompleteSystemBootstrap:
             self.config.get('model_storage')
         )
         await self.components['model_store'].initialize()
+        print("    ✓ Model storage initialized")
         
         print("  ✓ Storage infrastructure initialized")
     
@@ -274,17 +281,15 @@ class CompleteSystemBootstrap:
         
         # Initialize pattern discovery
         print("  - Setting up pattern discovery...")
-        self.components['pattern_discovery'] = PatternDiscovery(
-            timeseries_db=self.components['timeseries_db'],
-            feature_store=self.components['feature_store']
-        )
+        self.components['pattern_discovery'] = PatternDiscovery()
         
         # Initialize main prediction engine
         print("  - Setting up adaptive prediction engine...")
+        predictor_config = self.config.config.copy()
+        predictor_config['timeseries_db'] = self.components['timeseries_db']
+        predictor_config['feature_store'] = self.components['feature_store']
         self.components['predictor'] = AdaptiveOccupancyPredictor(
-            timeseries_db=self.components['timeseries_db'],
-            feature_store=self.components['feature_store'],
-            model_store=self.components['model_store']
+            config=predictor_config
         )
         await self.components['predictor'].initialize()
         
@@ -333,18 +338,20 @@ class CompleteSystemBootstrap:
         print("  - Merging living room and kitchen into unified space...")
         
         # Update room mappings in database for unified space
-        await self.components['timeseries_db'].execute("""
-            UPDATE sensor_events 
-            SET room = 'living_kitchen' 
-            WHERE room IN ('livingroom', 'kitchen')
-        """)
-        
-        # Update occupancy data
-        await self.components['timeseries_db'].execute("""
-            UPDATE room_occupancy 
-            SET room = 'living_kitchen' 
-            WHERE room IN ('livingroom', 'kitchen')
-        """)
+        async with self.components['timeseries_db'].engine.begin() as conn:
+            from sqlalchemy import text
+            await conn.execute(text("""
+                UPDATE sensor_events 
+                SET room = 'living_kitchen' 
+                WHERE room IN ('livingroom', 'kitchen')
+            """))
+            
+            # Update occupancy data
+            await conn.execute(text("""
+                UPDATE room_occupancy 
+                SET room = 'living_kitchen' 
+                WHERE room IN ('livingroom', 'kitchen')
+            """))
         
         print("  ✓ Combined living/kitchen space configured")
     
