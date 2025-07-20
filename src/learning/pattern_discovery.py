@@ -221,9 +221,96 @@ class PatternDiscovery:
         return components_exist and len(pattern_parts) >= 2
     
     def calculate_absence_strength(self, pattern: str, event_stream: List[Dict]) -> float:
-        """Calculate how strong the evidence is for pattern absence"""
-        # Simplified calculation based on component frequency
-        return 0.8  # Placeholder
+        """
+        Calculate how strong the evidence is for pattern absence
+        Based on component frequency and context availability
+        """
+        try:
+            if not pattern or not event_stream:
+                return 0.0
+            
+            # Split pattern into components (e.g., "room1->room2->room3")
+            pattern_parts = pattern.split('->')
+            if len(pattern_parts) < 2:
+                return 0.0
+            
+            # Count occurrences of individual components
+            component_counts = {}
+            total_events = len(event_stream)
+            
+            for event in event_stream:
+                event_signature = self._create_event_signature(event)
+                for part in pattern_parts:
+                    if part in event_signature:
+                        component_counts[part] = component_counts.get(part, 0) + 1
+            
+            # Calculate component frequencies
+            component_frequencies = {}
+            for part in pattern_parts:
+                count = component_counts.get(part, 0)
+                frequency = count / total_events if total_events > 0 else 0.0
+                component_frequencies[part] = frequency
+            
+            # Calculate expected pattern occurrences if independent
+            min_component_freq = min(component_frequencies.values()) if component_frequencies else 0.0
+            expected_pattern_freq = min_component_freq ** len(pattern_parts)
+            
+            # Calculate actual pattern occurrences
+            actual_pattern_count = self._count_pattern_occurrences(pattern, event_stream)
+            actual_pattern_freq = actual_pattern_count / total_events if total_events > 0 else 0.0
+            
+            # Absence strength = how much less frequent than expected
+            if expected_pattern_freq > 0:
+                absence_ratio = 1.0 - (actual_pattern_freq / expected_pattern_freq)
+                # Clamp between 0 and 1
+                absence_strength = max(0.0, min(1.0, absence_ratio))
+            else:
+                # If no expected occurrences, absence is certain
+                absence_strength = 1.0 if actual_pattern_count == 0 else 0.0
+            
+            # Weight by sample size - more data = more confident
+            sample_weight = min(1.0, total_events / 100.0)  # Full confidence at 100+ events
+            final_strength = absence_strength * sample_weight
+            
+            logger.debug(f"Pattern '{pattern}': expected_freq={expected_pattern_freq:.4f}, "
+                        f"actual_freq={actual_pattern_freq:.4f}, absence_strength={final_strength:.4f}")
+            
+            return final_strength
+            
+        except Exception as e:
+            logger.error(f"Error calculating absence strength for pattern '{pattern}': {e}")
+            return 0.0
+    
+    def _create_event_signature(self, event: Dict) -> str:
+        """Create signature for event matching pattern components"""
+        room = event.get('room', 'unknown')
+        state = event.get('state', 'unknown')
+        sensor_type = event.get('sensor_type', 'unknown')
+        return f"{room}:{sensor_type}:{state}"
+    
+    def _count_pattern_occurrences(self, pattern: str, event_stream: List[Dict]) -> int:
+        """Count actual occurrences of the pattern in event stream"""
+        pattern_parts = pattern.split('->')
+        if len(pattern_parts) < 2:
+            return 0
+        
+        occurrences = 0
+        
+        # Look for sequences matching the pattern
+        for i in range(len(event_stream) - len(pattern_parts) + 1):
+            match_found = True
+            
+            # Check if sequence starting at i matches pattern
+            for j, expected_part in enumerate(pattern_parts):
+                event_signature = self._create_event_signature(event_stream[i + j])
+                if expected_part not in event_signature:
+                    match_found = False
+                    break
+            
+            if match_found:
+                occurrences += 1
+        
+        return occurrences
 
 
 class StatisticalTestSuite:

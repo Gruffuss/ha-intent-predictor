@@ -170,7 +170,11 @@ class HAIntentPredictorSystem:
             token=self.config.get('home_assistant.token')
         )
         
-        self.components['ha_publisher'] = DynamicHAIntegration(ha_api)
+        self.components['ha_publisher'] = DynamicHAIntegration(
+            ha_api,
+            timeseries_db=self.components['timeseries_db'],
+            feature_store=self.components['feature_store']
+        )
         await self.components['ha_publisher'].initialize()
     
     async def _init_monitoring(self):

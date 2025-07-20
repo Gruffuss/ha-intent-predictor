@@ -448,6 +448,103 @@ class TimescaleDBManager:
             logger.error(f"Error getting database stats: {e}")
             return {}
     
+    async def get_recent_predictions(self, 
+                                   hours: int = 24,
+                                   room: Optional[str] = None,
+                                   horizon: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get recent predictions from database"""
+        try:
+            async with self.session_factory() as session:
+                query = """
+                    SELECT timestamp, room, horizon_minutes, probability, uncertainty, 
+                           confidence, model_name, features, metadata
+                    FROM predictions 
+                    WHERE timestamp >= NOW() - INTERVAL '%s hours'
+                """
+                params = [hours]
+                
+                if room:
+                    query += " AND room = %s"
+                    params.append(room)
+                    
+                if horizon:
+                    query += " AND horizon_minutes = %s"
+                    params.append(horizon)
+                    
+                query += " ORDER BY timestamp DESC"
+                
+                result = await session.execute(text(query), params)
+                rows = result.fetchall()
+                
+                predictions = []
+                for row in rows:
+                    predictions.append({
+                        'timestamp': row.timestamp,
+                        'room': row.room,
+                        'horizon_minutes': row.horizon_minutes,
+                        'probability': row.probability,
+                        'uncertainty': row.uncertainty,
+                        'confidence': row.confidence,
+                        'model_name': row.model_name,
+                        'features': row.features or {},
+                        'metadata': row.metadata or {}
+                    })
+                
+                return predictions
+                
+        except Exception as e:
+            logger.error(f"Error getting recent predictions: {e}")
+            return []
+    
+    async def get_room_activity_summary(self, 
+                                      room: str,
+                                      hours: int = 24) -> Dict[str, Any]:
+        """Get activity summary for a specific room"""
+        try:
+            async with self.session_factory() as session:
+                query = """
+                    SELECT 
+                        COUNT(*) as total_events,
+                        COUNT(CASE WHEN state = '1' OR state = 'on' THEN 1 END) as active_events,
+                        AVG(CASE WHEN numeric_value IS NOT NULL THEN numeric_value END) as avg_numeric_value,
+                        array_agg(DISTINCT sensor_type) as sensor_types,
+                        MIN(timestamp) as first_event,
+                        MAX(timestamp) as last_event
+                    FROM sensor_events 
+                    WHERE room = :room 
+                    AND timestamp >= NOW() - INTERVAL ':hours hours'
+                """
+                
+                result = await session.execute(text(query), {'room': room, 'hours': hours})
+                row = result.fetchone()
+                
+                if row:
+                    return {
+                        'room': room,
+                        'total_events': row.total_events or 0,
+                        'active_events': row.active_events or 0,
+                        'avg_numeric_value': float(row.avg_numeric_value) if row.avg_numeric_value else 0.0,
+                        'sensor_types': row.sensor_types or [],
+                        'first_event': row.first_event,
+                        'last_event': row.last_event,
+                        'activity_rate': (row.total_events or 0) / hours if hours > 0 else 0
+                    }
+                else:
+                    return {
+                        'room': room,
+                        'total_events': 0,
+                        'active_events': 0,
+                        'avg_numeric_value': 0.0,
+                        'sensor_types': [],
+                        'first_event': None,
+                        'last_event': None,
+                        'activity_rate': 0.0
+                    }
+                
+        except Exception as e:
+            logger.error(f"Error getting room activity summary for {room}: {e}")
+            return {'room': room, 'total_events': 0, 'active_events': 0, 'activity_rate': 0.0}
+
     async def close(self):
         """Close database connections"""
         if self.engine:

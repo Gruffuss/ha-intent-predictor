@@ -661,13 +661,70 @@ class HomeAssistantAPI:
     
     async def subscribe_events(self) -> AsyncGenerator[Dict[str, Any], None]:
         """Subscribe to HA events via WebSocket"""
-        # This would implement the full WebSocket event subscription
-        # For now, placeholder that yields sample events
+        logger.info("Starting WebSocket event subscription")
+        
         while True:
-            await asyncio.sleep(1)
-            yield {
-                'timestamp': datetime.now(),
-                'entity_id': 'binary_sensor.test',
-                'state': 'on',
-                'attributes': {}
-            }
+            try:
+                # Connect to HA WebSocket API
+                uri = f"ws://{self.ha_url.replace('http://', '').replace('https://', '')}/api/websocket"
+                
+                async with websockets.connect(uri) as websocket:
+                    # Authenticate
+                    auth_msg = await websocket.recv()
+                    auth_data = json.loads(auth_msg)
+                    
+                    if auth_data['type'] == 'auth_required':
+                        await websocket.send(json.dumps({
+                            'type': 'auth',
+                            'access_token': self.token
+                        }))
+                        
+                        auth_result = await websocket.recv()
+                        auth_result_data = json.loads(auth_result)
+                        
+                        if auth_result_data['type'] != 'auth_ok':
+                            logger.error("WebSocket authentication failed")
+                            await asyncio.sleep(5)
+                            continue
+                    
+                    # Subscribe to state changes
+                    await websocket.send(json.dumps({
+                        'id': 1,
+                        'type': 'subscribe_events',
+                        'event_type': 'state_changed'
+                    }))
+                    
+                    logger.info("WebSocket connected and subscribed to state changes")
+                    
+                    # Process incoming events
+                    async for message in websocket:
+                        try:
+                            data = json.loads(message)
+                            
+                            if data.get('type') == 'event' and data.get('event', {}).get('event_type') == 'state_changed':
+                                event_data = data['event']['data']
+                                entity_id = event_data['entity_id']
+                                
+                                # ONLY process configured sensors
+                                if not self._is_configured_sensor(entity_id):
+                                    continue
+                                
+                                # Yield enriched event
+                                enriched_event = {
+                                    'timestamp': datetime.now(),
+                                    'entity_id': event_data['entity_id'],
+                                    'state': event_data['new_state']['state'],
+                                    'attributes': event_data['new_state']['attributes'],
+                                    'old_state': event_data.get('old_state', {}).get('state'),
+                                    'source': 'websocket_subscription'
+                                }
+                                
+                                yield enriched_event
+                                
+                        except Exception as e:
+                            logger.warning(f"Error processing WebSocket message: {e}")
+                            continue
+                            
+            except Exception as e:
+                logger.error(f"WebSocket connection error: {e}")
+                await asyncio.sleep(5)  # Wait before reconnecting

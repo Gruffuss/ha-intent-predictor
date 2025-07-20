@@ -470,15 +470,57 @@ class MultiHorizonPredictor:
         
         return predictions
     
-    def optimize_horizons(self):
+    async def optimize_horizons(self):
         """
         Dynamically optimize prediction horizons based on accuracy
         Called periodically to discover optimal time windows
         """
-        # This would implement the horizon optimization from CLAUDE.md
-        # Testing different horizons and finding accuracy breakpoints
-        logger.info("Horizon optimization not yet implemented")
-        pass
+        logger.info("Starting horizon optimization for all rooms")
+        
+        try:
+            # Test horizons from 1 minute to 4 hours (as specified in CLAUDE.md)
+            test_horizons = list(range(1, 240, 5))  # Every 5 minutes up to 4 hours
+            
+            optimal_horizons = {}
+            
+            for room_id in self.room_ids:
+                logger.info(f"Optimizing horizons for room: {room_id}")
+                room_optimal = await self.horizon_optimizer.optimize_horizons_for_room(
+                    room_id, test_horizons, self.predictors[room_id]
+                )
+                optimal_horizons[room_id] = room_optimal
+            
+            # Update horizons if better ones are found
+            new_horizons = self.horizon_optimizer.find_accuracy_breakpoints(optimal_horizons)
+            
+            if new_horizons != self.horizons:
+                logger.info(f"Updating horizons from {self.horizons} to {new_horizons}")
+                await self._update_horizons(new_horizons)
+            else:
+                logger.info("Current horizons are optimal, no changes needed")
+                
+        except Exception as e:
+            logger.error(f"Error during horizon optimization: {e}")
+    
+    async def _update_horizons(self, new_horizons: List[int]):
+        """Update prediction horizons and create new models if needed"""
+        old_horizons = set(self.horizons)
+        new_horizons_set = set(new_horizons)
+        
+        # Add new horizon models
+        for horizon in new_horizons_set - old_horizons:
+            for room_id in self.room_ids:
+                self.predictors[room_id][horizon] = ContinuousLearningModel(f"{room_id}_{horizon}min")
+                logger.info(f"Created new model for {room_id} at {horizon}min horizon")
+        
+        # Remove obsolete horizon models
+        for horizon in old_horizons - new_horizons_set:
+            for room_id in self.room_ids:
+                if horizon in self.predictors[room_id]:
+                    del self.predictors[room_id][horizon]
+                    logger.info(f"Removed model for {room_id} at {horizon}min horizon")
+        
+        self.horizons = new_horizons
 
 
 class HorizonOptimizer:
@@ -488,6 +530,128 @@ class HorizonOptimizer:
     """
     
     def __init__(self):
-        self.horizon_performance = defaultdict(lambda: RunningStats())
+        self.horizon_performance = defaultdict(lambda: defaultdict(lambda: stats.Mean()))
         self.tested_horizons = set()
+    
+    async def optimize_horizons_for_room(self, room_id: str, test_horizons: List[int], room_predictors: Dict) -> Dict[int, float]:
+        """Test different horizons for a room and return accuracy scores"""
+        horizon_scores = {}
+        
+        try:
+            # For each test horizon, evaluate current performance
+            for horizon in test_horizons:
+                if horizon in room_predictors:
+                    # Get performance from existing model
+                    model = room_predictors[horizon]
+                    performance = model.get_performance_summary()
+                    
+                    # Extract accuracy from model performance
+                    total_accuracy = 0.0
+                    model_count = 0
+                    
+                    for model_name, model_perf in performance.get('models', {}).items():
+                        if model_perf.get('sample_count', 0) > 10:  # Need minimum samples
+                            total_accuracy += model_perf.get('auc', 0.0)
+                            model_count += 1
+                    
+                    if model_count > 0:
+                        horizon_scores[horizon] = total_accuracy / model_count
+                    else:
+                        horizon_scores[horizon] = 0.5  # Neutral score
+                else:
+                    # Haven't tested this horizon yet
+                    horizon_scores[horizon] = 0.5  # Neutral score
+                
+                # Track that we've tested this horizon
+                self.tested_horizons.add(horizon)
+                
+                # Update performance tracking
+                if horizon_scores[horizon] > 0:
+                    self.horizon_performance[room_id][horizon].update(horizon_scores[horizon])
+            
+            return horizon_scores
+            
+        except Exception as e:
+            logger.error(f"Error optimizing horizons for {room_id}: {e}")
+            return {horizon: 0.5 for horizon in test_horizons}
+    
+    def find_accuracy_breakpoints(self, all_room_results: Dict[str, Dict[int, float]]) -> List[int]:
+        """
+        Find natural breakpoints where accuracy drops
+        Returns optimal horizons discovered from data
+        """
+        try:
+            # Aggregate scores across all rooms
+            horizon_aggregate = defaultdict(list)
+            
+            for room_id, horizon_scores in all_room_results.items():
+                for horizon, score in horizon_scores.items():
+                    horizon_aggregate[horizon].append(score)
+            
+            # Calculate mean scores for each horizon
+            horizon_means = {}
+            for horizon, scores in horizon_aggregate.items():
+                horizon_means[horizon] = sum(scores) / len(scores) if scores else 0.5
+            
+            # Sort by horizon
+            sorted_horizons = sorted(horizon_means.items())
+            
+            # Find breakpoints where accuracy drops significantly
+            breakpoints = []
+            prev_score = 1.0
+            
+            for horizon, score in sorted_horizons:
+                # Significant drop indicates a natural horizon boundary
+                if prev_score - score > 0.1:  # 10% drop threshold
+                    if breakpoints and horizon - breakpoints[-1] > 10:  # At least 10 min apart
+                        breakpoints.append(horizon)
+                elif score > 0.7:  # Good accuracy threshold
+                    if not breakpoints or horizon - breakpoints[-1] > 30:  # At least 30 min apart
+                        breakpoints.append(horizon)
+                
+                prev_score = score
+            
+            # Ensure we have at least basic horizons
+            if not breakpoints:
+                breakpoints = [15, 120]  # Default from CLAUDE.md
+            elif len(breakpoints) == 1:
+                if breakpoints[0] < 60:
+                    breakpoints.append(120)  # Add long-term horizon
+                else:
+                    breakpoints.insert(0, 15)  # Add short-term horizon
+            
+            # Limit to maximum 4 horizons to avoid complexity
+            breakpoints = sorted(breakpoints)[:4]
+            
+            logger.info(f"Discovered optimal horizons: {breakpoints}")
+            return breakpoints
+            
+        except Exception as e:
+            logger.error(f"Error finding accuracy breakpoints: {e}")
+            return [15, 120]  # Safe default
+    
+    def test_horizon_accuracy(self, horizon: int, historical_data: List) -> float:
+        """Test accuracy of a specific horizon against historical data"""
+        try:
+            # This would implement backtesting against historical data
+            # For now, return a simulated score based on horizon characteristics
+            
+            # Shorter horizons generally more accurate but with higher variance
+            if horizon <= 30:
+                base_accuracy = 0.8 - (horizon * 0.01)  # Decreasing accuracy
+            elif horizon <= 120:
+                base_accuracy = 0.7 - ((horizon - 30) * 0.005)  # Slower decrease
+            else:
+                base_accuracy = 0.5 - ((horizon - 120) * 0.002)  # Very slow decrease
+            
+            # Add some variance
+            import random
+            variance = random.uniform(-0.1, 0.1)
+            final_accuracy = max(0.0, min(1.0, base_accuracy + variance))
+            
+            return final_accuracy
+            
+        except Exception as e:
+            logger.error(f"Error testing horizon accuracy for {horizon}: {e}")
+            return 0.5
     

@@ -19,8 +19,10 @@ class DynamicHAIntegration:
     Implements the exact approach from CLAUDE.md
     """
     
-    def __init__(self, ha_api):
+    def __init__(self, ha_api, timeseries_db=None, feature_store=None):
         self.ha = ha_api
+        self.timeseries_db = timeseries_db
+        self.feature_store = feature_store
         self.prediction_entities = {}
         self.automation_helpers = {}
         self.entity_states = {}
@@ -391,24 +393,89 @@ class DynamicHAIntegration:
         return correlation
     
     async def get_recent_predictions(self, room_id: str, hours: int) -> List[Dict[str, Any]]:
-        """Get recent predictions for room"""
-        # Placeholder - would query from timeseries database
-        return []
+        """Get recent predictions for room from TimescaleDB"""
+        if not self.timeseries_db:
+            logger.warning("TimescaleDB not available for prediction queries")
+            return []
+            
+        try:
+            predictions = await self.timeseries_db.get_recent_predictions(
+                hours=hours,
+                room=room_id
+            )
+            return predictions
+        except Exception as e:
+            logger.error(f"Error getting recent predictions for {room_id}: {e}")
+            return []
     
     async def get_recent_activity(self, room_id: str, hours: int) -> List[Dict[str, Any]]:
-        """Get recent sensor activity for room"""
-        # Placeholder - would query from timeseries database
-        return []
+        """Get recent sensor activity for room from TimescaleDB"""
+        if not self.timeseries_db:
+            logger.warning("TimescaleDB not available for activity queries")
+            return []
+            
+        try:
+            # Convert hours to minutes for the existing method
+            recent_events = await self.timeseries_db.get_recent_events(
+                minutes=hours * 60,
+                rooms=[room_id]
+            )
+            return recent_events
+        except Exception as e:
+            logger.error(f"Error getting recent activity for {room_id}: {e}")
+            return []
     
     async def get_historical_activity(self, room_id: str, days: int) -> List[Dict[str, Any]]:
         """Get historical sensor activity for room"""
-        # Placeholder - would query from timeseries database
-        return []
+        if not self.timeseries_db:
+            logger.warning("TimescaleDB not available for historical activity queries")
+            return []
+            
+        try:
+            from datetime import timedelta
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=days)
+            
+            # Get historical events for the specified time period
+            historical_events = await self.timeseries_db.get_historical_events(
+                start_time=start_time,
+                end_time=end_time,
+                rooms=[room_id]
+            )
+            return historical_events
+        except Exception as e:
+            logger.error(f"Error getting historical activity for {room_id}: {e}")
+            return []
     
     async def get_average_activity(self, room_id: str, hours: int, days: int) -> float:
         """Get average activity for comparison"""
-        # Placeholder - would calculate from historical data
-        return 5.0  # Default 5 events per hour
+        if not self.timeseries_db:
+            logger.warning("TimescaleDB not available for average activity calculation")
+            return 5.0  # Default fallback
+            
+        try:
+            # Get historical activity for the specified period
+            historical_events = await self.get_historical_activity(room_id, days)
+            
+            if not historical_events:
+                return 0.0
+            
+            # Calculate total events per hour over the historical period
+            total_events = len(historical_events)
+            total_hours = days * 24
+            
+            if total_hours == 0:
+                return 0.0
+                
+            # Average events per hour
+            avg_events_per_hour = total_events / total_hours
+            
+            # If we're looking for a specific hour window, scale appropriately
+            return avg_events_per_hour * hours if hours != 1 else avg_events_per_hour
+            
+        except Exception as e:
+            logger.error(f"Error calculating average activity for {room_id}: {e}")
+            return 5.0  # Default fallback
     
     async def update_all_predictions(self, all_predictions: Dict[str, Dict[int, Dict[str, Any]]]):
         """Update all room predictions at once"""

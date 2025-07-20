@@ -229,9 +229,11 @@ class AdaptiveCatDetector:
                     curr_time = curr.get('timestamp', datetime.now())
                     next_time = next_event.get('timestamp', datetime.now())
                     
-                    if not self.was_door_opened(door_entity, curr_time, next_time):
-                        logger.debug(f"Door violation detected for {next_room}")
-                        return True
+                    # Note: This needs to be called from an async context with database
+                    # For now, check if we have database access (this method needs to be async)
+                    logger.debug(f"Would check door {door_entity} for {next_room}")
+                    # Placeholder: assume door was opened for now
+                    # TODO: Make this method async and pass timeseries_db
             
             # Analyze movement pattern
             movement = self.analyze_movement(curr, next_event, time_diff)
@@ -316,14 +318,52 @@ class AdaptiveCatDetector:
                 inter_room_times.get((room2, room1)) or 
                 2.0)  # Default minimum
     
-    def was_door_opened(self, door_entity: str, start_time: datetime, end_time: datetime) -> bool:
+    async def was_door_opened(self, door_entity: str, start_time: datetime, end_time: datetime, timeseries_db=None) -> bool:
         """
         Check if door was opened during time window
-        In full implementation, would query historical data
+        Query historical door sensor data from TimescaleDB
         """
-        # Placeholder - would check actual door sensor history
-        logger.debug(f"Checking door {door_entity} between {start_time} and {end_time}")
-        return True  # Assume door was opened for now
+        if not timeseries_db:
+            logger.warning("TimescaleDB not available for door sensor queries")
+            return True  # Assume door was opened if we can't verify
+        
+        try:
+            # Ensure we have timezone-aware datetimes
+            if start_time.tzinfo is None:
+                from datetime import timezone
+                start_time = start_time.replace(tzinfo=timezone.utc)
+            if end_time.tzinfo is None:
+                from datetime import timezone
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            
+            # Query door sensor events in the time window
+            door_events = await timeseries_db.get_historical_events(
+                start_time=start_time,
+                end_time=end_time,
+                entity_ids=[door_entity]
+            )
+            
+            if not door_events:
+                # No door events recorded - assume closed
+                logger.debug(f"No door events for {door_entity} between {start_time} and {end_time}")
+                return False
+            
+            # Check if door was opened (state changed to 'off' for contact sensors)
+            for event in door_events:
+                state = event.get('state', '')
+                # Door contact sensors: 'off' = open, 'on' = closed
+                if state == 'off':
+                    logger.debug(f"Door {door_entity} was opened at {event.get('timestamp')}")
+                    return True
+            
+            # No opening events found
+            logger.debug(f"Door {door_entity} remained closed between {start_time} and {end_time}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking door sensor {door_entity}: {e}")
+            # If we can't verify, assume door was opened to avoid false positives
+            return True
     
     def tag_as_cat_activity(self, sequence: List[Dict[str, Any]]):
         """Tag sequence as cat activity for learning"""
