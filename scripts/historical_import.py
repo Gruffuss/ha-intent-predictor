@@ -485,8 +485,8 @@ class HistoricalDataImporter:
         self.stats['processed_records'] += 1
         
         # Track person-specific data
-        if enriched_data.get('person'):
-            self.stats['person_specific_counts'][enriched_data['person']] += 1
+        if event_data.get('person'):
+            self.stats['person_specific_counts'][event_data['person']] += 1
     
     async def process_sensor_record(self, record):
         """Process a single database record"""
