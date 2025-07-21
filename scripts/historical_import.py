@@ -400,12 +400,21 @@ class HistoricalDataImporter:
         state = record.get('state')
         attributes = record.get('attributes', {})
         
-        # Store in database (skip enrichment for now to get bootstrap working)
+        # Enrich event data with room identification
+        room = self._identify_room(entity_id)
+        # Apply living/kitchen merge immediately during import
+        if room in ['livingroom', 'kitchen']:
+            room = 'living_kitchen'
+            
+        sensor_type = self._identify_sensor_type(entity_id)
+        
         event_data = {
             'entity_id': entity_id,
             'timestamp': timestamp,
             'state': state,
-            'attributes': attributes
+            'attributes': attributes,
+            'room': room,
+            'sensor_type': sensor_type
         }
         await self.store_sensor_event(event_data)
         
@@ -425,12 +434,21 @@ class HistoricalDataImporter:
         state = record['state']
         attributes = json.loads(record['attributes']) if record['attributes'] else {}
         
-        # Store in database (skip enrichment for now to get bootstrap working)
+        # Enrich event data with room identification
+        room = self._identify_room(entity_id)
+        # Apply living/kitchen merge immediately during import
+        if room in ['livingroom', 'kitchen']:
+            room = 'living_kitchen'
+            
+        sensor_type = self._identify_sensor_type(entity_id)
+        
         event_data = {
             'entity_id': entity_id,
             'timestamp': timestamp,
             'state': state,
-            'attributes': attributes
+            'attributes': attributes,
+            'room': room,
+            'sensor_type': sensor_type
         }
         await self.store_sensor_event(event_data)
         
@@ -788,6 +806,42 @@ class HistoricalDataImporter:
         """)
         
         return {sensor['sensor_type']: dict(sensor) for sensor in coverage}
+    
+    def _identify_room(self, entity_id: str) -> str:
+        """Identify room from entity ID - copied from ha_stream.py"""
+        if 'livingroom' in entity_id:
+            return 'livingroom'
+        elif 'kitchen' in entity_id:
+            return 'kitchen'
+        elif 'bedroom' in entity_id:
+            return 'bedroom'
+        elif 'office' in entity_id:
+            return 'office'
+        elif 'bathroom' in entity_id:
+            return 'bathroom' if 'small' not in entity_id else 'small_bathroom'
+        elif 'guest' in entity_id:
+            return 'guest_bedroom'
+        else:
+            return 'unknown'
+    
+    def _identify_sensor_type(self, entity_id: str) -> str:
+        """Identify sensor type from entity ID - copied from ha_stream.py"""
+        if 'presence' in entity_id or 'pressence' in entity_id:
+            return 'presence'
+        elif 'temperature' in entity_id:
+            return 'temperature'
+        elif 'humidity' in entity_id:
+            return 'humidity'
+        elif 'light_level' in entity_id:
+            return 'light'
+        elif 'door' in entity_id:
+            return 'door'
+        elif 'contact' in entity_id:
+            return 'contact'
+        elif 'motion' in entity_id:
+            return 'motion'
+        else:
+            return 'unknown'
     
     async def get_anomaly_summary(self) -> Dict:
         """Get summary of detected anomalies"""
