@@ -1,0 +1,79 @@
+# rooms.yaml - Just structure, no schedules
+rooms:
+  living_kitchen:  # Combined space
+    name: "Living Room & Kitchen"
+    sensors:
+      presence:
+        livingroom_full: binary_sensor.presence_livingroom_full
+        livingroom_couch: binary_sensor.presence_livingroom_couch
+        kitchen_full: binary_sensor.kitchen_pressence_full_kitchen
+        kitchen_stove: binary_sensor.kitchen_pressence_stove
+        kitchen_sink: binary_sensor.kitchen_pressence_sink
+        kitchen_dining: binary_sensor.kitchen_pressence_dining_table
+      climate:
+        temperature: sensor.livingroom_env_sensor_temperature
+        humidity: sensor.livingroom_env_sensor_humidity
+      light:
+        livingroom: sensor.livingroom_pressence_light_level
+        kitchen: sensor.kitchen_pressence_light_level
+  
+  bedroom:
+    sensors:
+      presence:
+        full_room: binary_sensor.bedroom_presence_sensor_full_bedroom
+        anca_side: binary_sensor.bedroom_presence_sensor_anca_bed_side
+        vladimir_side: binary_sensor.bedroom_vladimir_bed_side
+        floor: binary_sensor.bedroom_floor
+        entrance: binary_sensor.bedroom_entrance
+      door: binary_sensor.bedroom_door_sensor_contact
+      climate:
+        temperature: sensor.bedroom_env_sensor_temperature
+        humidity: sensor.bedroom_env_sensor_humidity
+      light: sensor.bedroom_presence_light_level
+  
+  office:
+    sensors:
+      presence:
+        full_room: binary_sensor.office_presence_full_office
+        anca_desk: binary_sensor.office_presence_anca_desk
+        vladimir_desk: binary_sensor.office_presence_vladimir_desk
+        entrance: binary_sensor.office_entrance
+      door: binary_sensor.office_door_sensor_contact
+      climate:
+        temperature: sensor.office_env_sensor_temperature
+        humidity: sensor.office_env_sensor_humidity
+      light: sensor.office_presence_light_level
+  
+  bathroom:
+    sensors:
+      entrance: binary_sensor.bathroom_entrance
+      door: binary_sensor.bathroom_door_sensor_contact
+      climate:
+        temperature: sensor.bathroom_env_sensor_temperature
+        humidity: sensor.bathroom_env_sensor_humidity
+  
+  small_bathroom:
+    sensors:
+      entrance: binary_sensor.presence_small_bathroom_entrance
+      door: binary_sensor.small_bathroom_door_sensor_contact
+  
+  guest_bedroom:
+    sensors:
+      entrance: binary_sensor.guest_bedroom_entrance
+      door: binary_sensor.guest_bedroom_door_sensor_contact
+      climate:
+        temperature: sensor.guest_bedroom_env_sensor_temperature
+        humidity: sensor.guest_bedroom_env_sensor_humidity
+  
+  hallways:
+    ground_floor:
+      presence: binary_sensor.presence_ground_floor_hallway
+      stairs: binary_sensor.presence_stairs_up_ground_floor
+    upper:
+      presence: binary_sensor.upper_hallway
+      upstairs: binary_sensor.upper_hallway_upstairs
+      downstairs: binary_sensor.upper_hallway_downstairs
+      climate:
+        temperature: sensor.upper_hallway_env_sensor_temperature
+        humidity: sensor.upper_hallway_env_sensor_humidity
+      light: sensor.upper_hallway_pressence_light_level
