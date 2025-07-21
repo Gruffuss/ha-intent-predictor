@@ -146,5 +146,21 @@ asyncio.run(check())
 **Expected**: 15:35-15:45 (5-15 minutes from 15:33)
 **Status**: Running smoothly after fixes applied
 
+## 📊 PROGRESS MONITORING
+**How to Check Progress:**
+- Bootstrap runs subprocess: PID 1268434 is historical_import.py (visible in `ps -ef | grep 1268404`)
+- Main bootstrap: PID 1268404 python scripts/bootstrap_complete.py
+- No detailed progress files created - process runs silently
+- Check event count: Database shows 1,143,311+ events (slowly increasing)
+- Health endpoint: `curl http://192.168.51.10/health` returns "HA Intent Predictor is running"
+- Model registry: `models/metadata/registry.json` currently empty `{}`
+- Logs directory: Only old logs from July 20, current bootstrap doesn't log much
+
+**Current Status (15:56):** 
+- Bootstrap stable 25+ minutes, no crashes
+- Historical import subprocess still active
+- Pattern discovery fix working - no timestamp errors
+- Process proceeding normally through phases
+
 ---
-*Last updated: 2025-07-21 15:33 - Pattern discovery fix applied, bootstrap proceeding normally*
+*Last updated: 2025-07-21 15:56 - Added progress monitoring info, bootstrap running 25+ mins stable*
