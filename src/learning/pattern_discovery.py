@@ -25,6 +25,140 @@ class PatternDiscovery:
         self.statistical_tests = StatisticalTestSuite()
         self.adaptive_threshold = 0.05  # P-value threshold for statistical significance
         
+    async def discover_multizone_patterns(self, room_name: str, historical_events: List[Dict] = None) -> Dict:
+        """
+        Discover patterns for multi-zone rooms
+        Handles the complex zone relationships from CLAUDE.md
+        """
+        logger.info(f"Discovering multi-zone patterns for {room_name}")
+        
+        if historical_events is None:
+            # If no events provided, get from database
+            from ..storage.timeseries_db import TimescaleDBManager
+            from ...config.config_loader import ConfigLoader
+            
+            config = ConfigLoader()
+            db_config = config.get("database.timescale")
+            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
+            await db.initialize()
+            
+            async with db.engine.begin() as conn:
+                from sqlalchemy import text
+                result = await conn.execute(text("SELECT * FROM sensor_events WHERE room = :room ORDER BY timestamp"), {'room': room_name})
+                historical_events = [dict(row._mapping) for row in result.fetchall()]
+            
+            await db.close()
+        
+        # Filter events for this room
+        room_events = [
+            event for event in historical_events
+            if event.get('room') == room_name
+        ]
+        
+        if not room_events:
+            logger.warning(f"No events found for room {room_name}")
+            return {}
+        
+        # Discover patterns using the sophisticated algorithm
+        self.discover_patterns(room_events, room_name)
+        
+        patterns = self.pattern_library.get(room_name, set())
+        
+        logger.info(f"Discovered {len(patterns)} patterns for {room_name}")
+        
+        return {
+            'room': room_name,
+            'pattern_count': len(patterns),
+            'patterns': list(patterns)[:10]  # Show first 10 patterns
+        }
+    
+    async def discover_bathroom_patterns(self, bathroom_rooms: List[str], historical_events: List[Dict] = None) -> Dict:
+        """
+        Discover patterns specific to bathroom usage
+        Handles the special bathroom logic from CLAUDE.md
+        """
+        logger.info(f"Discovering bathroom patterns for {bathroom_rooms}")
+        
+        if historical_events is None:
+            # If no events provided, get from database
+            from ..storage.timeseries_db import TimescaleDBManager
+            from ...config.config_loader import ConfigLoader
+            
+            config = ConfigLoader()
+            db_config = config.get("database.timescale")
+            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
+            await db.initialize()
+            
+            bathroom_events = []
+            async with db.engine.begin() as conn:
+                from sqlalchemy import text
+                for room in bathroom_rooms:
+                    result = await conn.execute(text("SELECT * FROM sensor_events WHERE room = :room ORDER BY timestamp"), {'room': room})
+                    room_events = [dict(row._mapping) for row in result.fetchall()]
+                    bathroom_events.extend(room_events)
+            
+            await db.close()
+            historical_events = bathroom_events
+        else:
+            bathroom_events = []
+            for room in bathroom_rooms:
+                room_events = [
+                    event for event in historical_events
+                    if event.get('room') == room
+                ]
+                bathroom_events.extend(room_events)
+        
+        # Bathroom-specific pattern discovery
+        patterns = {}
+        for room in bathroom_rooms:
+            room_events = [e for e in bathroom_events if e.get('room') == room]
+            if room_events:
+                self.discover_patterns(room_events, room)
+                patterns[room] = self.pattern_library.get(room, set())
+        
+        return {
+            'bathroom_rooms': bathroom_rooms,
+            'patterns': patterns
+        }
+    
+    async def discover_transition_patterns(self, area_name: str, historical_events: List[Dict] = None) -> Dict:
+        """Discover transition patterns for hallways and connections"""
+        logger.info(f"Discovering transition patterns for {area_name}")
+        
+        if historical_events is None:
+            # If no events provided, get from database
+            from ..storage.timeseries_db import TimescaleDBManager
+            from ...config.config_loader import ConfigLoader
+            
+            config = ConfigLoader()
+            db_config = config.get("database.timescale")
+            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
+            await db.initialize()
+            
+            async with db.engine.begin() as conn:
+                from sqlalchemy import text
+                result = await conn.execute(text("SELECT * FROM sensor_events WHERE entity_id LIKE '%hallway%' OR entity_id LIKE '%stairs%' ORDER BY timestamp"))
+                historical_events = [dict(row._mapping) for row in result.fetchall()]
+            
+            await db.close()
+        
+        # Filter transition events
+        transition_events = [
+            event for event in historical_events
+            if 'hallway' in event.get('entity_id', '') or 'stairs' in event.get('entity_id', '')
+        ]
+        
+        if transition_events:
+            self.discover_patterns(transition_events, area_name)
+        
+        patterns = self.pattern_library.get(area_name, set())
+        
+        return {
+            'area': area_name,
+            'pattern_count': len(patterns),
+            'patterns': list(patterns)[:10]
+        }
+
     def discover_patterns(self, event_stream: List[Dict], room_id: str):
         """
         No assumptions - let data speak for itself
