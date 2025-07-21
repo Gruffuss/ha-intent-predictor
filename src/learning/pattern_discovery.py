@@ -34,8 +34,8 @@ class PatternDiscovery:
         
         if historical_events is None:
             # If no events provided, get from database
-            from ..storage.timeseries_db import TimescaleDBManager
-            from ...config.config_loader import ConfigLoader
+            from src.storage.timeseries_db import TimescaleDBManager
+            from config.config_loader import ConfigLoader
             
             config = ConfigLoader()
             db_config = config.get("database.timescale")
@@ -81,8 +81,8 @@ class PatternDiscovery:
         
         if historical_events is None:
             # If no events provided, get from database
-            from ..storage.timeseries_db import TimescaleDBManager
-            from ...config.config_loader import ConfigLoader
+            from src.storage.timeseries_db import TimescaleDBManager
+            from config.config_loader import ConfigLoader
             
             config = ConfigLoader()
             db_config = config.get("database.timescale")
@@ -127,8 +127,8 @@ class PatternDiscovery:
         
         if historical_events is None:
             # If no events provided, get from database
-            from ..storage.timeseries_db import TimescaleDBManager
-            from ...config.config_loader import ConfigLoader
+            from src.storage.timeseries_db import TimescaleDBManager
+            from config.config_loader import ConfigLoader
             
             config = ConfigLoader()
             db_config = config.get("database.timescale")

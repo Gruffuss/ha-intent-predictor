@@ -450,16 +450,17 @@ class CompleteSystemBootstrap:
                     'movement_speed': self.components['cat_detector'].person_specific_patterns[person]['movement_speed'] if person in self.components['cat_detector'].person_specific_patterns else None
                 }
             
-            # Cache person learning initialization
-            await self.components['feature_store'].set(
-                f"person_learning:{person}:initialized",
-                json.dumps({
-                    'initialized_at': datetime.now().isoformat(),
-                    'person': person,
-                    'learning_enabled': True,
-                    'patterns_discovered': 0
-                }),
-                ttl=86400  # 24 hours
+            # Cache person learning initialization using correct Redis method
+            person_data = {
+                'initialized_at': datetime.now().isoformat(),
+                'person': person,
+                'learning_enabled': True,
+                'patterns_discovered': 0
+            }
+            
+            await self.components['feature_store'].store_model_state(
+                f"person_learning_{person}_initialized",
+                person_data
             )
             
             print(f"    - Initialized learning for {person}")
@@ -545,10 +546,13 @@ class CompleteSystemBootstrap:
         
         print("  - Validating Redis connectivity...")
         
-        # Test Redis connection
-        await self.components['feature_store'].set("bootstrap_test", "success", ttl=10)
-        test_value = await self.components['feature_store'].get("bootstrap_test")
-        if test_value != "success":
+        # Test Redis connection using correct Redis methods
+        test_data = {"status": "success", "timestamp": datetime.now().isoformat()}
+        await self.components['feature_store'].store_model_state("bootstrap_test", test_data)
+        
+        # Verify the data was stored
+        retrieved_data = await self.components['feature_store'].get_model_state("bootstrap_test")
+        if not retrieved_data or retrieved_data.get("status") != "success":
             raise RuntimeError("Redis connection failed")
         
         print("  - Validating model storage...")
