@@ -45,6 +45,8 @@
 - **ML Models**: Initializing adaptive predictors for 5 rooms (living_kitchen, bedroom, office, bathroom, small_bathroom)
 - **Person-Specific**: Anca & Vladimir zones configured
 
+**⚠️ IMPORTANT: Complete architecture details are in CLAUDE.md - refer to that document for all implementation specifics, not this summary!**
+
 ## 🔮 WHAT'S NEXT
 
 ### If Bootstrap Completes Successfully:
@@ -53,17 +55,20 @@
 3. **Test Predictions** - Verify ML models making occupancy predictions
 4. **Monitor Performance** - Check system resource usage
 
+**📖 All implementation details for these steps are in CLAUDE.md - don't guess, refer to the master implementation guide!**
+
 ### If Bootstrap Fails (User expects it might):
 - **Historical data is SAFE** - Won't need to re-import 1.14M events
 - **Fixes applied will persist** - Pattern discovery fix committed
 - **Next run will resume** - From failed phase only
 - **Common failure points**: Person-specific learning, HA integration, system validation
+- **All solutions likely exist** - Check CLAUDE.md and search existing code before creating fixes
 
 ### Most Likely Issues:
-- **Import errors** - Missing dependencies (Tuple, List, etc.)
-- **API integration** - HA connection issues
-- **Model initialization** - ML library version conflicts
-- **Permission errors** - File/directory access
+- **Import errors** - Missing dependencies (Tuple, List, etc.) - Functions exist, just need proper imports
+- **API integration** - HA connection issues - Integration code exists in CLAUDE.md
+- **Model initialization** - ML library version conflicts - Models are implemented, check existing code
+- **Permission errors** - File/directory access - Solutions documented in CLAUDE.md
 
 ## 🔧 QUICK RECOVERY COMMANDS
 
@@ -109,6 +114,20 @@ asyncio.run(check())
 - **Follows CLAUDE.md strictly** - All implementations must match specifications
 
 ## 🚨 CRITICAL REMINDERS
+
+### **CLAUDE.md IS THE SINGLE SOURCE OF TRUTH**
+- **ALL functions, classes, and architecture details are in CLAUDE.md**
+- **ALWAYS refer to CLAUDE.md first** - Don't guess or assume anything
+- **Complete system implementation guide** - Every component is documented there
+- **All patterns and specifications** - Follow CLAUDE.md exactly, never deviate
+
+### **EVERYTHING ALREADY EXISTS**
+- **ALL functions are already implemented** - User says "almost 100% is there"
+- **NEVER recreate existing functionality** - Always search for existing implementations first
+- **Use Grep, Glob, Read tools** - Find existing code before writing new code
+- **Architecture is complete** - All components exist, just need to connect them properly
+
+### **DEVELOPMENT RULES**
 - **NEVER modify code without asking** - User has strict rules about this
 - **Always check if features exist** - Don't recreate existing functionality
 - **Read CLAUDE.md for specifications** - All development follows this guide
