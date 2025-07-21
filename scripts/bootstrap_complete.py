@@ -234,10 +234,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # Room occupancy inference table
+            # Room occupancy inference table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS room_occupancy (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL,
                     room VARCHAR(100) NOT NULL,
                     occupied BOOLEAN NOT NULL,
@@ -246,9 +246,14 @@ class CompleteSystemBootstrap:
                     supporting_evidence JSONB,
                     person VARCHAR(50),
                     duration_minutes INTEGER,
-                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                    processed_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(id, timestamp)
                 );
             """))
+            
+        # Create hypertables and indices in separate transaction to avoid rollback issues
+        async with self.components['timeseries_db'].engine.begin() as conn:
+            from sqlalchemy import text
             
             # Create hypertable for occupancy data
             try:
@@ -257,13 +262,17 @@ class CompleteSystemBootstrap:
                                            if_not_exists => TRUE,
                                            chunk_time_interval => INTERVAL '1 day');
                 """))
+                logger.info("Room occupancy hypertable created successfully")
             except Exception as e:
                 logger.warning(f"Room occupancy hypertable creation failed (may already exist): {e}")
+        
+        # Create indices in separate transaction
+        async with self.components['timeseries_db'].engine.begin() as conn:
+            from sqlalchemy import text
             
-            # Create comprehensive indices for performance
             indices = [
                 "CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events (room, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);", 
                 "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_room ON discovered_patterns (room, is_active);",
                 "CREATE INDEX IF NOT EXISTS idx_room_occupancy_room ON room_occupancy (room, timestamp DESC);"
             ]
@@ -271,6 +280,7 @@ class CompleteSystemBootstrap:
             for index_sql in indices:
                 try:
                     await conn.execute(text(index_sql))
+                    logger.info(f"Index created: {index_sql.split()[5]}")
                 except Exception as e:
                     logger.warning(f"Index creation failed (may already exist): {e}")
         
