@@ -302,6 +302,30 @@ class CompleteSystemBootstrap:
     async def _import_historical_data(self):
         """Import 180 days of historical data using existing historical_import.py"""
         
+        print("  - Checking for existing historical data...")
+        
+        # Check if we already have sufficient historical data
+        async with self.components['timeseries_db'].engine.begin() as conn:
+            from sqlalchemy import text
+            
+            # Check total event count
+            result = await conn.execute(text("SELECT COUNT(*) FROM sensor_events"))
+            total_events = result.fetchone()[0]
+            
+            # Check date range
+            result = await conn.execute(text("SELECT MIN(timestamp), MAX(timestamp) FROM sensor_events"))
+            min_date, max_date = result.fetchone()
+            
+            if min_date and max_date:
+                date_range_days = (max_date - min_date).days
+                print(f"    - Found {total_events:,} existing events")
+                print(f"    - Date range: {date_range_days} days ({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})")
+                
+                # If we have substantial historical data (>500k events, >150 days), skip import
+                if total_events > 500000 and date_range_days > 150:
+                    print("  ✓ Sufficient historical data already exists - skipping import")
+                    return
+        
         print("  - Running historical data import (180 days)...")
         
         # Run the existing historical_import.py script
