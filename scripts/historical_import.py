@@ -240,8 +240,8 @@ class HistoricalDataImporter:
         """
         logger.info(f"Starting import of {days} days of historical data...")
         
-        # Calculate date range
-        end_date = datetime.now()
+        # Calculate date range - stop at yesterday to avoid infinite current-day import
+        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)  # Start of today
         start_date = end_date - timedelta(days=days)
         
         logger.info(f"Import range: {start_date} to {end_date}")
