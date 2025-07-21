@@ -364,18 +364,29 @@ class CompleteSystemBootstrap:
         # Update room mappings in database for unified space
         async with self.components['timeseries_db'].engine.begin() as conn:
             from sqlalchemy import text
-            await conn.execute(text("""
+            
+            # Update sensor events (main historical data)
+            result = await conn.execute(text("""
                 UPDATE sensor_events 
                 SET room = 'living_kitchen' 
                 WHERE room IN ('livingroom', 'kitchen')
             """))
+            updated_events = result.rowcount
+            print(f"    - Updated {updated_events:,} sensor events")
             
-            # Update occupancy data
-            await conn.execute(text("""
-                UPDATE room_occupancy 
-                SET room = 'living_kitchen' 
-                WHERE room IN ('livingroom', 'kitchen')
-            """))
+            # Update occupancy data if table exists and has data
+            try:
+                result = await conn.execute(text("""
+                    UPDATE room_occupancy 
+                    SET room = 'living_kitchen' 
+                    WHERE room IN ('livingroom', 'kitchen')
+                """))
+                updated_occupancy = result.rowcount
+                print(f"    - Updated {updated_occupancy:,} occupancy records")
+            except Exception as e:
+                # Table might not exist or be empty during bootstrap
+                print(f"    - No occupancy data to update (table may not exist yet)")
+                logger.debug(f"Occupancy update skipped: {e}")
         
         print("  ✓ Combined living/kitchen space configured")
     
