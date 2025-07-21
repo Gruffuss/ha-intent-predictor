@@ -39,12 +39,15 @@ venv.bak/
 logs/
 *.log
 
-# Config files with sensitive data
-config/
+# Environment files with sensitive data
 *.env
 .env.local
 .env.production
 .env.development
+
+# Exclude sensitive config files but allow base config
+config/ha_config.json
+config/system.yaml
 
 # Database
 *.db
