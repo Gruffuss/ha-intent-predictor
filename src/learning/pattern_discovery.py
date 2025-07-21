@@ -141,8 +141,19 @@ class PatternDiscovery:
             if not sequence:
                 continue
                 
-            start_time = datetime.fromisoformat(sequence[0]['timestamp'].replace('Z', '+00:00'))
-            end_time = datetime.fromisoformat(sequence[-1]['timestamp'].replace('Z', '+00:00'))
+            # Handle both datetime objects and strings
+            start_timestamp = sequence[0]['timestamp']
+            end_timestamp = sequence[-1]['timestamp']
+            
+            if isinstance(start_timestamp, str):
+                start_time = datetime.fromisoformat(start_timestamp.replace('Z', '+00:00'))
+            else:
+                start_time = start_timestamp
+                
+            if isinstance(end_timestamp, str):
+                end_time = datetime.fromisoformat(end_timestamp.replace('Z', '+00:00'))
+            else:
+                end_time = end_timestamp
             
             # Check if sequence fits within time window
             if (end_time - start_time).total_seconds() <= window_minutes * 60:
