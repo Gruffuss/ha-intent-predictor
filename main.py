@@ -31,14 +31,21 @@ from src.storage.model_store import ModelStore
 from src.adaptation.drift_detection import DriftDetector
 from config.config_loader import ConfigLoader
 
-# Configure logging
+# Configure logging with fallback for Docker permissions
+import os
+handlers = [logging.StreamHandler()]
+try:
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    handlers.append(logging.FileHandler('logs/ha_predictor.log'))
+except (PermissionError, OSError):
+    # Fall back to console only in Docker environments
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/ha_predictor.log'),
-        logging.StreamHandler()
-    ]
+    handlers=handlers
 )
 logger = logging.getLogger(__name__)
 
