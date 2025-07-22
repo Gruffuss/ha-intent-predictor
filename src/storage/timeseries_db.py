@@ -45,7 +45,7 @@ class TimescaleDBManager:
                 expire_on_commit=False
             )
             
-            await self.create_tables()
+            # Skip table creation - bootstrap_complete.py handles schema creation
             self.initialized = True
             logger.info("TimescaleDB initialized successfully")
             

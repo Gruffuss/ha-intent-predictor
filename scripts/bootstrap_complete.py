@@ -221,10 +221,10 @@ class CompleteSystemBootstrap:
             # Enable TimescaleDB extension
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
             
-            # 1. Create sensor_events table - exact match to schema.sql
+            # 1. Create sensor_events table - TimescaleDB compatible (no PRIMARY KEY before hypertable)
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sensor_events (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     entity_id VARCHAR(255) NOT NULL,
                     state VARCHAR(50) NOT NULL,
@@ -245,10 +245,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 2. Create computed_features table
+            # 2. Create computed_features table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS computed_features (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100) NOT NULL,
                     features JSONB NOT NULL,
@@ -260,10 +260,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 3. Create occupancy_predictions table
+            # 3. Create occupancy_predictions table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS occupancy_predictions (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100) NOT NULL,
                     horizon_minutes INTEGER NOT NULL,
@@ -286,7 +286,7 @@ class CompleteSystemBootstrap:
             # 4. Create room_occupancy table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS room_occupancy (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL,
                     room VARCHAR(100) NOT NULL,
                     occupied BOOLEAN NOT NULL,
