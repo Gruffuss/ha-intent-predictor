@@ -65,7 +65,7 @@
 - `scripts/historical_import.py`: ✅ Added room identification, fixed infinite loop
 - `src/learning/pattern_discovery.py`: ✅ Added missing pattern discovery methods  
 - `scripts/bootstrap_complete.py`: ✅ Fixed Redis calls, room_occupancy table, import skip logic
-- `config/sensors.yaml` & `config/rooms.yaml`: ✅ Created with 49 core sensors from CLAUDE.md
+- `config/sensors.yaml` & `config/rooms.yaml`: ✅ Created with 49 core sensors from setup_instructions.md
 
 ### Git Status
 - **Branch**: `working-fixes` 
@@ -132,7 +132,7 @@ ssh ha-predictor 'cd /opt/ha-intent-predictor && source venv/bin/activate && pyt
 ## 🏗️ ARCHITECTURE NOTES
 
 - **Container**: Proxmox LXC 200, IP 192.168.51.10
-- **All code exists**: CLAUDE.md has complete implementation, never recreate
+- **All code exists**: setup_instructions.md has complete implementation, never recreate
 - **SSH Access**: `ssh ha-predictor` (key-based auth)
 - **All services working**: TimescaleDB, Redis, health endpoint
 - **Git workflow**: All fixes in `working-fixes` branch, ready to merge

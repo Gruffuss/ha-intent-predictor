@@ -213,14 +213,92 @@ class CompleteSystemBootstrap:
         print("  ✓ Storage infrastructure initialized")
     
     async def _create_database_schema(self):
-        """Create complete database schema for the system"""
+        """Create complete database schema matching schema.sql"""
         
         async with self.components['timeseries_db'].engine.begin() as conn:
             from sqlalchemy import text
             
-            # Pattern discovery table
+            # 1. Create sensor_events table with full schema.sql structure
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS discovered_patterns (
+                CREATE TABLE IF NOT EXISTS sensor_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    entity_id VARCHAR(255) NOT NULL,
+                    state VARCHAR(50) NOT NULL,
+                    previous_state VARCHAR(50),
+                    attributes JSONB,
+                    room VARCHAR(100),
+                    sensor_type VARCHAR(50),
+                    zone_type VARCHAR(50),
+                    zone_name VARCHAR(100),
+                    person_specific VARCHAR(50),
+                    activity_type VARCHAR(50),
+                    time_since_last_change INTERVAL,
+                    state_transition VARCHAR(100),
+                    concurrent_events INTEGER DEFAULT 0,
+                    anomaly_score FLOAT DEFAULT 0.0,
+                    is_anomaly BOOLEAN DEFAULT FALSE,
+                    anomaly_type VARCHAR(50)
+                );
+            """))
+            
+            # 2. Create computed_features table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS computed_features (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    room VARCHAR(100) NOT NULL,
+                    features JSONB NOT NULL,
+                    feature_count INTEGER,
+                    feature_names TEXT[],
+                    feature_importance JSONB,
+                    context_window_minutes INTEGER,
+                    data_points_used INTEGER
+                );
+            """))
+            
+            # 3. Create occupancy_predictions table
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS occupancy_predictions (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    room VARCHAR(100) NOT NULL,
+                    horizon_minutes INTEGER NOT NULL,
+                    probability FLOAT NOT NULL,
+                    uncertainty FLOAT NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    model_name VARCHAR(100),
+                    model_version VARCHAR(50),
+                    ensemble_weights JSONB,
+                    contributing_models JSONB,
+                    feature_importance JSONB,
+                    top_features JSONB,
+                    actual_outcome BOOLEAN,
+                    prediction_error FLOAT,
+                    processing_time_ms INTEGER,
+                    explanation TEXT
+                );
+            """))
+            
+            # 4. Create room_occupancy table - TimescaleDB compatible
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS room_occupancy (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room VARCHAR(100) NOT NULL,
+                    occupied BOOLEAN NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    inference_method VARCHAR(100),
+                    supporting_evidence JSONB,
+                    person VARCHAR(50),
+                    duration_minutes INTEGER,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """))
+            
+            # 5. Fix pattern discovery table name to match timeseries_db.py expectations
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS pattern_discoveries (
                     id BIGSERIAL PRIMARY KEY,
                     room VARCHAR(100) NOT NULL,
                     pattern_type VARCHAR(100) NOT NULL,
@@ -234,57 +312,73 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # Room occupancy inference table - TimescaleDB compatible
+            # 6. Create model_performance table
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS room_occupancy (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL,
+                CREATE TABLE IF NOT EXISTS model_performance (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100) NOT NULL,
-                    occupied BOOLEAN NOT NULL,
-                    confidence DOUBLE PRECISION,
-                    inference_method VARCHAR(100),
-                    supporting_evidence JSONB,
-                    person VARCHAR(50),
-                    duration_minutes INTEGER,
-                    processed_at TIMESTAMPTZ DEFAULT NOW(),
-                    UNIQUE(id, timestamp)
+                    model_name VARCHAR(100) NOT NULL,
+                    horizon_minutes INTEGER NOT NULL,
+                    accuracy FLOAT,
+                    precision_score FLOAT,
+                    recall_score FLOAT,
+                    f1_score FLOAT,
+                    auc_roc FLOAT,
+                    confusion_matrix JSONB,
+                    prediction_count INTEGER,
+                    training_samples INTEGER,
+                    drift_score FLOAT,
+                    performance_trend VARCHAR(50)
                 );
             """))
             
-        # Create hypertables and indices in separate transaction to avoid rollback issues
+        # Create hypertables in separate transaction
         async with self.components['timeseries_db'].engine.begin() as conn:
-            from sqlalchemy import text
+            hypertables = [
+                ("sensor_events", "timestamp"),
+                ("computed_features", "timestamp"), 
+                ("occupancy_predictions", "timestamp"),
+                ("room_occupancy", "timestamp"),
+                ("model_performance", "timestamp")
+            ]
             
-            # Create hypertable for occupancy data
-            try:
-                await conn.execute(text("""
-                    SELECT create_hypertable('room_occupancy', 'timestamp',
-                                           if_not_exists => TRUE,
-                                           chunk_time_interval => INTERVAL '1 day');
-                """))
-                logger.info("Room occupancy hypertable created successfully")
-            except Exception as e:
-                logger.warning(f"Room occupancy hypertable creation failed (may already exist): {e}")
+            for table, time_column in hypertables:
+                try:
+                    await conn.execute(text(f"""
+                        SELECT create_hypertable('{table}', '{time_column}',
+                                               if_not_exists => TRUE,
+                                               chunk_time_interval => INTERVAL '1 day');
+                    """))
+                    logger.info(f"{table} hypertable created successfully")
+                except Exception as e:
+                    logger.warning(f"{table} hypertable creation failed (may already exist): {e}")
         
-        # Create indices in separate transaction
+        # Create all required indices from schema.sql
         async with self.components['timeseries_db'].engine.begin() as conn:
-            from sqlalchemy import text
-            
             indices = [
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_timestamp ON sensor_events (timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_entity ON sensor_events (entity_id, timestamp DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events (room, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);", 
-                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_room ON discovered_patterns (room, is_active);",
-                "CREATE INDEX IF NOT EXISTS idx_room_occupancy_room ON room_occupancy (room, timestamp DESC);"
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_person ON sensor_events (person_specific, timestamp DESC) WHERE person_specific IS NOT NULL;",
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_anomaly ON sensor_events (is_anomaly, timestamp DESC) WHERE is_anomaly = TRUE;",
+                "CREATE INDEX IF NOT EXISTS idx_computed_features_timestamp ON computed_features (timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_computed_features_room ON computed_features (room, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_timestamp ON occupancy_predictions (timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_room ON occupancy_predictions (room, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_room_occupancy_room ON room_occupancy (room, timestamp DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_pattern_discoveries_room ON pattern_discoveries (room, is_active);",
+                "CREATE INDEX IF NOT EXISTS idx_model_performance_room ON model_performance (room, model_name, timestamp DESC);"
             ]
             
             for index_sql in indices:
                 try:
                     await conn.execute(text(index_sql))
-                    logger.info(f"Index created: {index_sql.split()[5]}")
+                    logger.info(f"Index created: {index_sql.split('IF NOT EXISTS ')[1].split()[0]}")
                 except Exception as e:
                     logger.warning(f"Index creation failed (may already exist): {e}")
         
-        print("  ✓ Database schema created")
+        print("  ✓ Complete database schema created with all required tables and indices")
     
     async def _initialize_learning(self):
         """Initialize adaptive learning components"""
