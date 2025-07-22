@@ -534,10 +534,10 @@ class HistoricalDataImporter:
         events = await self._query_database("""
             SELECT timestamp, entity_id, state, zone_type
             FROM sensor_events
-            WHERE room = $1
+            WHERE room = :room
             AND (zone_type = 'entrance_zone' OR entity_id LIKE '%door%')
             ORDER BY timestamp
-        """, room)
+        """, {'room': room})
         
         # Apply bathroom occupancy inference logic
         occupancy_periods = []
@@ -580,10 +580,10 @@ class HistoricalDataImporter:
         events = await self._query_database("""
             SELECT timestamp, entity_id, state, zone_type
             FROM sensor_events
-            WHERE room = $1
+            WHERE room = :room
             AND sensor_type = 'presence'
             ORDER BY timestamp
-        """, room)
+        """, {'room': room})
         
         # Simple occupancy inference based on presence sensors
         occupancy_periods = []
