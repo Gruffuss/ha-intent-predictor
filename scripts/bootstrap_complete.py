@@ -382,24 +382,26 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 6. Create model_performance table
+            # 6. Create model_performance table - exact match to schema.sql
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS model_performance (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100) NOT NULL,
                     model_name VARCHAR(100) NOT NULL,
                     horizon_minutes INTEGER NOT NULL,
-                    accuracy FLOAT,
+                    accuracy FLOAT NOT NULL,
                     precision_score FLOAT,
-                    recall_score FLOAT,
+                    recall FLOAT,
                     f1_score FLOAT,
-                    auc_roc FLOAT,
-                    confusion_matrix JSONB,
-                    prediction_count INTEGER,
-                    training_samples INTEGER,
+                    roc_auc FLOAT,
+                    window_size INTEGER,
+                    evaluation_period INTERVAL,
+                    model_version VARCHAR(50),
+                    hyperparameters JSONB,
+                    training_data_points INTEGER,
                     drift_score FLOAT,
-                    performance_trend VARCHAR(50)
+                    drift_detected BOOLEAN DEFAULT FALSE
                 );
             """))
             
