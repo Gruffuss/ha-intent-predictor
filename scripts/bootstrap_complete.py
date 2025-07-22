@@ -548,7 +548,7 @@ class CompleteSystemBootstrap:
         
         # Run the existing historical_import.py script
         script_path = Path(__file__).parent / "historical_import.py"
-        config_path = Path(__file__).parent.parent / "config" / "system.yaml"
+        config_path = Path(__file__).parent.parent / "config" / "ha_config.json"
         
         logger.info(f"🔍 DEBUG: Script path: {script_path}")
         logger.info(f"🔍 DEBUG: Config path: {config_path}")
