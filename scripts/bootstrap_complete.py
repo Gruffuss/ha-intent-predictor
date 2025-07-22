@@ -322,10 +322,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 6. Create anomaly_events table - exact match to schema.sql  
+            # 6. Create anomaly_events table - TimescaleDB compatible  
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS anomaly_events (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100),
                     anomaly_type VARCHAR(100) NOT NULL,
@@ -342,10 +342,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 7. Create system_metrics table - exact match to schema.sql
+            # 7. Create system_metrics table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS system_metrics (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     cpu_usage FLOAT,
                     memory_usage FLOAT,
@@ -363,10 +363,10 @@ class CompleteSystemBootstrap:
                 );
             """))
             
-            # 8. Create model_configurations table - exact match to schema.sql
+            # 8. Create model_configurations table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS model_configurations (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGSERIAL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     room VARCHAR(100) NOT NULL,
                     model_name VARCHAR(100) NOT NULL,
