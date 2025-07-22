@@ -59,23 +59,30 @@ class TimescaleDBManager:
             # Enable TimescaleDB extension
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb;"))
             
-            # Sensor events table - complete schema matching historical_import expectations
+            # Enable TimescaleDB extension
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
+            
+            # Sensor events table - exact match to schema.sql
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sensor_events (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL,
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     entity_id VARCHAR(255) NOT NULL,
-                    state VARCHAR(255),
-                    numeric_value DOUBLE PRECISION,
+                    state VARCHAR(50) NOT NULL,
+                    previous_state VARCHAR(50),
                     attributes JSONB,
                     room VARCHAR(100),
                     sensor_type VARCHAR(50),
                     zone_type VARCHAR(50),
-                    zone_info JSONB,
-                    person VARCHAR(50),
-                    enriched_data JSONB,
-                    processed_at TIMESTAMPTZ DEFAULT NOW(),
-                    PRIMARY KEY (timestamp, entity_id)
+                    zone_name VARCHAR(100),
+                    person_specific VARCHAR(50),
+                    activity_type VARCHAR(50),
+                    time_since_last_change INTERVAL,
+                    state_transition VARCHAR(100),
+                    concurrent_events INTEGER DEFAULT 0,
+                    anomaly_score FLOAT DEFAULT 0.0,
+                    is_anomaly BOOLEAN DEFAULT FALSE,
+                    anomaly_type VARCHAR(50)
                 );
             """))
             
@@ -132,17 +139,26 @@ class TimescaleDBManager:
                 );
             """))
             
-            # Pattern discoveries table
+            # Discovered patterns table - exact match to schema.sql
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS pattern_discoveries (
-                    timestamp TIMESTAMPTZ NOT NULL,
-                    room TEXT NOT NULL,
-                    pattern_type TEXT NOT NULL,
+                CREATE TABLE IF NOT EXISTS discovered_patterns (
+                    id BIGSERIAL PRIMARY KEY,
+                    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    room VARCHAR(100) NOT NULL,
+                    pattern_type VARCHAR(100) NOT NULL,
                     pattern_data JSONB NOT NULL,
-                    significance_score FLOAT,
-                    frequency INTEGER,
-                    metadata JSONB,
-                    PRIMARY KEY (timestamp, room, pattern_type)
+                    frequency INTEGER NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    support FLOAT NOT NULL,
+                    significance_score FLOAT NOT NULL,
+                    time_window_minutes INTEGER,
+                    valid_from TIMESTAMPTZ,
+                    valid_to TIMESTAMPTZ,
+                    sensor_entities TEXT[],
+                    conditions JSONB,
+                    prediction_improvement FLOAT,
+                    usage_count INTEGER DEFAULT 0,
+                    last_used TIMESTAMPTZ
                 );
             """))
             
