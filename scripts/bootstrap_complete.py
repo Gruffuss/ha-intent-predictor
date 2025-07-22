@@ -137,7 +137,9 @@ class CompleteSystemBootstrap:
             
             # Step 3: Import historical data (CLAUDE.md core requirement)
             print("\n3. 📊 Importing 180 days of historical data...")
+            logger.info("🔍 DEBUG: Starting historical data import step")
             await self._import_historical_data()
+            logger.info("🔍 DEBUG: Historical data import step completed")
             
             # Step 4: Configure combined living/kitchen space (CLAUDE.md requirement)
             print("\n4. 🏠 Configuring unified living/kitchen space...")
@@ -517,6 +519,7 @@ class CompleteSystemBootstrap:
         """Import 180 days of historical data using existing historical_import.py"""
         
         print("  - Checking for existing historical data...")
+        logger.info("🔍 DEBUG: Checking database for existing historical data")
         
         # Check if we already have sufficient historical data
         async with self.components['timeseries_db'].engine.begin() as conn:
@@ -541,18 +544,26 @@ class CompleteSystemBootstrap:
                     return
         
         print("  - Running historical data import (180 days)...")
+        logger.info("🔍 DEBUG: Starting subprocess call to historical_import.py")
         
         # Run the existing historical_import.py script
         script_path = Path(__file__).parent / "historical_import.py"
         config_path = Path(__file__).parent.parent / "config" / "system.yaml"
         
+        logger.info(f"🔍 DEBUG: Script path: {script_path}")
+        logger.info(f"🔍 DEBUG: Config path: {config_path}")
+        logger.info(f"🔍 DEBUG: Script exists: {script_path.exists()}")
+        logger.info(f"🔍 DEBUG: Config exists: {config_path.exists()}")
+        
         try:
             # Execute the historical import script
+            logger.info("🔍 DEBUG: About to execute subprocess.run")
             result = subprocess.run([
                 sys.executable, str(script_path),
                 "--days", "180",
                 "--config", str(config_path)
             ], capture_output=True, text=True, cwd=Path(__file__).parent.parent)
+            logger.info(f"🔍 DEBUG: Subprocess completed with return code: {result.returncode}")
             
             if result.returncode == 0:
                 print("  ✓ Historical data import completed successfully")
