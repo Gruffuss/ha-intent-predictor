@@ -670,11 +670,21 @@ class HistoricalDataImporter:
                 from sqlalchemy import text
                 for anomaly in anomalies:
                     # Convert anomaly data to JSON-serializable format
-                    anomaly_dict = dict(anomaly)
-                    # Convert datetime objects to ISO format strings
+                    if hasattr(anomaly, 'keys'):
+                        # It's a SQLAlchemy Row object
+                        anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
+                    else:
+                        anomaly_dict = dict(anomaly)
+                    
+                    # Convert non-JSON-serializable objects to strings
                     for key, value in anomaly_dict.items():
                         if hasattr(value, 'isoformat'):  # datetime objects
                             anomaly_dict[key] = value.isoformat()
+                        elif hasattr(value, '__float__'):  # Decimal objects
+                            anomaly_dict[key] = float(value)
+                        elif not isinstance(value, (str, int, float, bool, type(None))):
+                            # Convert any other non-serializable objects to string
+                            anomaly_dict[key] = str(value)
                     
                     await conn.execute(text("""
                         INSERT INTO discovered_patterns (

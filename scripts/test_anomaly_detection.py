@@ -69,22 +69,23 @@ async def test_anomaly_detection():
                 print(f"🔍 Anomaly type: {type(anomaly)}")
                 
                 # Convert anomaly data to JSON-serializable format (same as fixed code)
-                if hasattr(anomaly, '_asdict'):
-                    # It's a named tuple
-                    anomaly_dict = anomaly._asdict()
-                elif hasattr(anomaly, 'keys'):
-                    # It's a row/mapping
+                if hasattr(anomaly, 'keys'):
+                    # It's a SQLAlchemy Row object
                     anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
                 else:
-                    # Try direct dict conversion
                     anomaly_dict = dict(anomaly)
                 
                 print(f"🔍 Converted dict: {anomaly_dict}")
                 
-                # Convert datetime objects to ISO format strings
+                # Convert non-JSON-serializable objects (same fix as historical_import.py)
                 for key, value in anomaly_dict.items():
                     if hasattr(value, 'isoformat'):  # datetime objects
                         anomaly_dict[key] = value.isoformat()
+                    elif hasattr(value, '__float__'):  # Decimal objects
+                        anomaly_dict[key] = float(value)
+                    elif not isinstance(value, (str, int, float, bool, type(None))):
+                        # Convert any other non-serializable objects to string
+                        anomaly_dict[key] = str(value)
                 
                 # Test JSON serialization
                 json_data = json.dumps(anomaly_dict)
