@@ -137,9 +137,7 @@ class CompleteSystemBootstrap:
             
             # Step 3: Import historical data (CLAUDE.md core requirement)
             print("\n3. 📊 Importing 180 days of historical data...")
-            logger.info("🔍 DEBUG: Starting historical data import step")
             await self._import_historical_data()
-            logger.info("🔍 DEBUG: Historical data import step completed")
             
             # Step 4: Configure combined living/kitchen space (CLAUDE.md requirement)
             print("\n4. 🏠 Configuring unified living/kitchen space...")
@@ -215,77 +213,28 @@ class CompleteSystemBootstrap:
         print("  ✓ Storage infrastructure initialized")
     
     async def _create_database_schema(self):
-        """Create complete database schema matching schema.sql"""
+        """Create complete database schema for the system"""
         
         async with self.components['timeseries_db'].engine.begin() as conn:
             from sqlalchemy import text
             
-            # Enable TimescaleDB extension
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
-            
-            # 1. Create sensor_events table - TimescaleDB compatible (no PRIMARY KEY before hypertable)
+            # Pattern discovery table
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS sensor_events (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    entity_id VARCHAR(255) NOT NULL,
-                    state VARCHAR(50) NOT NULL,
-                    previous_state VARCHAR(50),
-                    attributes JSONB,
-                    room VARCHAR(100),
-                    sensor_type VARCHAR(50),
-                    zone_type VARCHAR(50),
-                    zone_name VARCHAR(100),
-                    person_specific VARCHAR(50),
-                    activity_type VARCHAR(50),
-                    time_since_last_change INTERVAL,
-                    state_transition VARCHAR(100),
-                    concurrent_events INTEGER DEFAULT 0,
-                    anomaly_score FLOAT DEFAULT 0.0,
-                    is_anomaly BOOLEAN DEFAULT FALSE,
-                    anomaly_type VARCHAR(50)
-                );
-            """))
-            
-            # 2. Create computed_features table - TimescaleDB compatible
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS computed_features (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CREATE TABLE IF NOT EXISTS discovered_patterns (
+                    id BIGSERIAL PRIMARY KEY,
                     room VARCHAR(100) NOT NULL,
-                    features JSONB NOT NULL,
-                    feature_count INTEGER,
-                    feature_names TEXT[],
-                    feature_importance JSONB,
-                    context_window_minutes INTEGER,
-                    data_points_used INTEGER
+                    pattern_type VARCHAR(100) NOT NULL,
+                    pattern_data JSONB NOT NULL,
+                    significance_score DOUBLE PRECISION,
+                    confidence DOUBLE PRECISION,
+                    support_count INTEGER,
+                    discovered_at TIMESTAMPTZ DEFAULT NOW(),
+                    last_validated TIMESTAMPTZ,
+                    is_active BOOLEAN DEFAULT TRUE
                 );
             """))
             
-            # 3. Create occupancy_predictions table - TimescaleDB compatible
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS occupancy_predictions (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100) NOT NULL,
-                    horizon_minutes INTEGER NOT NULL,
-                    probability FLOAT NOT NULL,
-                    uncertainty FLOAT NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    model_name VARCHAR(100),
-                    model_version VARCHAR(50),
-                    ensemble_weights JSONB,
-                    contributing_models JSONB,
-                    feature_importance JSONB,
-                    top_features JSONB,
-                    actual_outcome BOOLEAN,
-                    prediction_error FLOAT,
-                    processing_time_ms INTEGER,
-                    explanation TEXT
-                );
-            """))
-            
-            # 4. Create room_occupancy table - TimescaleDB compatible
+            # Room occupancy inference table - TimescaleDB compatible
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS room_occupancy (
                     id BIGSERIAL,
@@ -297,200 +246,45 @@ class CompleteSystemBootstrap:
                     supporting_evidence JSONB,
                     person VARCHAR(50),
                     duration_minutes INTEGER,
-                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                    processed_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(id, timestamp)
                 );
             """))
             
-            # 5. Create discovered_patterns table - exact match to schema.sql
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS discovered_patterns (
-                    id BIGSERIAL PRIMARY KEY,
-                    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100) NOT NULL,
-                    pattern_type VARCHAR(100) NOT NULL,
-                    pattern_data JSONB NOT NULL,
-                    frequency INTEGER NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    support FLOAT NOT NULL,
-                    significance_score FLOAT NOT NULL,
-                    time_window_minutes INTEGER,
-                    valid_from TIMESTAMPTZ,
-                    valid_to TIMESTAMPTZ,
-                    sensor_entities TEXT[],
-                    conditions JSONB,
-                    prediction_improvement FLOAT,
-                    usage_count INTEGER DEFAULT 0,
-                    last_used TIMESTAMPTZ
-                );
-            """))
-            
-            # 6. Create anomaly_events table - TimescaleDB compatible  
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS anomaly_events (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100),
-                    anomaly_type VARCHAR(100) NOT NULL,
-                    anomaly_score FLOAT NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    sensor_sequence JSONB,
-                    triggering_events JSONB,
-                    explanation TEXT,
-                    detector_version VARCHAR(50),
-                    detection_method VARCHAR(100),
-                    human_verified BOOLEAN,
-                    human_feedback TEXT,
-                    feedback_timestamp TIMESTAMPTZ
-                );
-            """))
-            
-            # 7. Create system_metrics table - TimescaleDB compatible
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS system_metrics (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    cpu_usage FLOAT,
-                    memory_usage FLOAT,
-                    disk_usage FLOAT,
-                    events_processed_per_second INTEGER,
-                    predictions_per_second INTEGER,
-                    average_prediction_time_ms FLOAT,
-                    active_models INTEGER,
-                    model_updates_per_hour INTEGER,
-                    feature_count INTEGER,
-                    sensor_events_per_hour INTEGER,
-                    data_ingestion_rate_mb_per_second FLOAT,
-                    error_count INTEGER DEFAULT 0,
-                    warning_count INTEGER DEFAULT 0
-                );
-            """))
-            
-            # 8. Create model_configurations table - TimescaleDB compatible
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS model_configurations (
-                    id BIGSERIAL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100) NOT NULL,
-                    model_name VARCHAR(100) NOT NULL,
-                    version VARCHAR(50) NOT NULL,
-                    hyperparameters JSONB NOT NULL,
-                    features_used TEXT[],
-                    training_config JSONB,
-                    validation_accuracy FLOAT,
-                    cross_validation_score FLOAT,
-                    deployed_at TIMESTAMPTZ,
-                    deprecated_at TIMESTAMPTZ,
-                    is_active BOOLEAN DEFAULT TRUE
-                );
-            """))
-            
-            # 6. Create model_performance table - exact match to schema.sql
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS model_performance (
-                    id BIGSERIAL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100) NOT NULL,
-                    model_name VARCHAR(100) NOT NULL,
-                    horizon_minutes INTEGER NOT NULL,
-                    accuracy FLOAT NOT NULL,
-                    precision_score FLOAT,
-                    recall FLOAT,
-                    f1_score FLOAT,
-                    roc_auc FLOAT,
-                    window_size INTEGER,
-                    evaluation_period INTERVAL,
-                    model_version VARCHAR(50),
-                    hyperparameters JSONB,
-                    training_data_points INTEGER,
-                    drift_score FLOAT,
-                    drift_detected BOOLEAN DEFAULT FALSE
-                );
-            """))
-            
-        # Create hypertables in separate transaction
+        # Create hypertables and indices in separate transaction to avoid rollback issues
         async with self.components['timeseries_db'].engine.begin() as conn:
-            hypertables = [
-                ("sensor_events", "timestamp"),
-                ("computed_features", "timestamp"), 
-                ("occupancy_predictions", "timestamp"),
-                ("room_occupancy", "timestamp"),
-                ("model_performance", "timestamp"),
-                ("anomaly_events", "timestamp"),
-                ("system_metrics", "timestamp")
-            ]
+            from sqlalchemy import text
             
-            for table, time_column in hypertables:
-                try:
-                    await conn.execute(text(f"""
-                        SELECT create_hypertable('{table}', '{time_column}',
-                                               if_not_exists => TRUE,
-                                               chunk_time_interval => INTERVAL '1 day');
-                    """))
-                    logger.info(f"{table} hypertable created successfully")
-                except Exception as e:
-                    logger.warning(f"{table} hypertable creation failed (may already exist): {e}")
+            # Create hypertable for occupancy data
+            try:
+                await conn.execute(text("""
+                    SELECT create_hypertable('room_occupancy', 'timestamp',
+                                           if_not_exists => TRUE,
+                                           chunk_time_interval => INTERVAL '1 day');
+                """))
+                logger.info("Room occupancy hypertable created successfully")
+            except Exception as e:
+                logger.warning(f"Room occupancy hypertable creation failed (may already exist): {e}")
         
-        # Create all required indices from schema.sql
+        # Create indices in separate transaction
         async with self.components['timeseries_db'].engine.begin() as conn:
+            from sqlalchemy import text
+            
             indices = [
-                # sensor_events indices
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_timestamp ON sensor_events (timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_entity ON sensor_events (entity_id, timestamp DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_sensor_events_room ON sensor_events (room, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_person ON sensor_events (person_specific, timestamp DESC) WHERE person_specific IS NOT NULL;",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_anomaly ON sensor_events (is_anomaly, timestamp DESC) WHERE is_anomaly = TRUE;",
-                "CREATE INDEX IF NOT EXISTS idx_sensor_events_composite ON sensor_events (room, timestamp DESC, entity_id, state);",
-                
-                # computed_features indices
-                "CREATE INDEX IF NOT EXISTS idx_computed_features_timestamp ON computed_features (timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_computed_features_room ON computed_features (room, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_computed_features_gin ON computed_features USING gin (features);",
-                
-                # occupancy_predictions indices
-                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_timestamp ON occupancy_predictions (timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_room ON occupancy_predictions (room, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_horizon ON occupancy_predictions (horizon_minutes, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_occupancy_predictions_accuracy ON occupancy_predictions (prediction_error, timestamp DESC) WHERE actual_outcome IS NOT NULL;",
-                "CREATE INDEX IF NOT EXISTS idx_predictions_composite ON occupancy_predictions (room, horizon_minutes, timestamp DESC, probability);",
-                
-                # discovered_patterns indices  
-                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_room ON discovered_patterns (room, discovered_at DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_type ON discovered_patterns (pattern_type, discovered_at DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_significance ON discovered_patterns (significance_score DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_gin ON discovered_patterns USING gin (pattern_data);",
-                
-                # model_performance indices
-                "CREATE INDEX IF NOT EXISTS idx_model_performance_timestamp ON model_performance (timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_model_performance_room_model ON model_performance (room, model_name, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_model_performance_accuracy ON model_performance (accuracy DESC, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_model_performance_drift ON model_performance (drift_detected, timestamp DESC) WHERE drift_detected = TRUE;",
-                "CREATE INDEX IF NOT EXISTS idx_performance_composite ON model_performance (room, model_name, horizon_minutes, timestamp DESC);",
-                
-                # anomaly_events indices
-                "CREATE INDEX IF NOT EXISTS idx_anomaly_events_timestamp ON anomaly_events (timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_anomaly_events_type ON anomaly_events (anomaly_type, timestamp DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_anomaly_events_score ON anomaly_events (anomaly_score DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_anomaly_events_room ON anomaly_events (room, timestamp DESC) WHERE room IS NOT NULL;",
-                
-                # system_metrics indices
-                "CREATE INDEX IF NOT EXISTS idx_system_metrics_timestamp ON system_metrics (timestamp DESC);",
-                
-                # model_configurations indices
-                "CREATE INDEX IF NOT EXISTS idx_model_configurations_room ON model_configurations (room, created_at DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_model_configurations_active ON model_configurations (is_active, created_at DESC) WHERE is_active = TRUE;",
-                
-                # room_occupancy indices
+                "CREATE INDEX IF NOT EXISTS idx_sensor_events_sensor_type ON sensor_events (sensor_type, timestamp DESC);", 
+                "CREATE INDEX IF NOT EXISTS idx_discovered_patterns_room ON discovered_patterns (room, is_active);",
                 "CREATE INDEX IF NOT EXISTS idx_room_occupancy_room ON room_occupancy (room, timestamp DESC);"
             ]
             
             for index_sql in indices:
                 try:
                     await conn.execute(text(index_sql))
-                    logger.info(f"Index created: {index_sql.split('IF NOT EXISTS ')[1].split()[0]}")
+                    logger.info(f"Index created: {index_sql.split()[5]}")
                 except Exception as e:
                     logger.warning(f"Index creation failed (may already exist): {e}")
         
-        print("  ✓ Complete database schema created with all required tables and indices")
+        print("  ✓ Database schema created")
     
     async def _initialize_learning(self):
         """Initialize adaptive learning components"""
@@ -519,7 +313,6 @@ class CompleteSystemBootstrap:
         """Import 180 days of historical data using existing historical_import.py"""
         
         print("  - Checking for existing historical data...")
-        logger.info("🔍 DEBUG: Checking database for existing historical data")
         
         # Check if we already have sufficient historical data
         async with self.components['timeseries_db'].engine.begin() as conn:
@@ -544,26 +337,18 @@ class CompleteSystemBootstrap:
                     return
         
         print("  - Running historical data import (180 days)...")
-        logger.info("🔍 DEBUG: Starting subprocess call to historical_import.py")
         
         # Run the existing historical_import.py script
         script_path = Path(__file__).parent / "historical_import.py"
-        config_path = Path(__file__).parent.parent / "config" / "ha_config.json"
-        
-        logger.info(f"🔍 DEBUG: Script path: {script_path}")
-        logger.info(f"🔍 DEBUG: Config path: {config_path}")
-        logger.info(f"🔍 DEBUG: Script exists: {script_path.exists()}")
-        logger.info(f"🔍 DEBUG: Config exists: {config_path.exists()}")
+        config_path = Path(__file__).parent.parent / "config" / "system.yaml"
         
         try:
             # Execute the historical import script
-            logger.info("🔍 DEBUG: About to execute subprocess.run")
             result = subprocess.run([
                 sys.executable, str(script_path),
                 "--days", "180",
                 "--config", str(config_path)
             ], capture_output=True, text=True, cwd=Path(__file__).parent.parent)
-            logger.info(f"🔍 DEBUG: Subprocess completed with return code: {result.returncode}")
             
             if result.returncode == 0:
                 print("  ✓ Historical data import completed successfully")

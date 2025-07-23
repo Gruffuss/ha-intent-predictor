@@ -45,7 +45,7 @@ class TimescaleDBManager:
                 expire_on_commit=False
             )
             
-            # Skip table creation - bootstrap_complete.py handles schema creation
+            await self.create_tables()
             self.initialized = True
             logger.info("TimescaleDB initialized successfully")
             
@@ -59,30 +59,17 @@ class TimescaleDBManager:
             # Enable TimescaleDB extension
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb;"))
             
-            # Enable TimescaleDB extension
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
-            
-            # Sensor events table - exact match to schema.sql
+            # Sensor events table
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sensor_events (
-                    id BIGSERIAL PRIMARY KEY,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    entity_id VARCHAR(255) NOT NULL,
-                    state VARCHAR(50) NOT NULL,
-                    previous_state VARCHAR(50),
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    room TEXT,
+                    sensor_type TEXT,
                     attributes JSONB,
-                    room VARCHAR(100),
-                    sensor_type VARCHAR(50),
-                    zone_type VARCHAR(50),
-                    zone_name VARCHAR(100),
-                    person_specific VARCHAR(50),
-                    activity_type VARCHAR(50),
-                    time_since_last_change INTERVAL,
-                    state_transition VARCHAR(100),
-                    concurrent_events INTEGER DEFAULT 0,
-                    anomaly_score FLOAT DEFAULT 0.0,
-                    is_anomaly BOOLEAN DEFAULT FALSE,
-                    anomaly_type VARCHAR(50)
+                    derived_features JSONB,
+                    PRIMARY KEY (timestamp, entity_id)
                 );
             """))
             
@@ -139,26 +126,17 @@ class TimescaleDBManager:
                 );
             """))
             
-            # Discovered patterns table - exact match to schema.sql
+            # Pattern discoveries table
             await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS discovered_patterns (
-                    id BIGSERIAL PRIMARY KEY,
-                    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    room VARCHAR(100) NOT NULL,
-                    pattern_type VARCHAR(100) NOT NULL,
+                CREATE TABLE IF NOT EXISTS pattern_discoveries (
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
                     pattern_data JSONB NOT NULL,
-                    frequency INTEGER NOT NULL,
-                    confidence FLOAT NOT NULL,
-                    support FLOAT NOT NULL,
-                    significance_score FLOAT NOT NULL,
-                    time_window_minutes INTEGER,
-                    valid_from TIMESTAMPTZ,
-                    valid_to TIMESTAMPTZ,
-                    sensor_entities TEXT[],
-                    conditions JSONB,
-                    prediction_improvement FLOAT,
-                    usage_count INTEGER DEFAULT 0,
-                    last_used TIMESTAMPTZ
+                    significance_score FLOAT,
+                    frequency INTEGER,
+                    metadata JSONB,
+                    PRIMARY KEY (timestamp, room, pattern_type)
                 );
             """))
             
@@ -190,31 +168,23 @@ class TimescaleDBManager:
                 await session.execute(
                     text("""
                         INSERT INTO sensor_events 
-                        (timestamp, entity_id, state, numeric_value, attributes, room, sensor_type, zone_type, zone_info, person, enriched_data)
-                        VALUES (:timestamp, :entity_id, :state, :numeric_value, :attributes, :room, :sensor_type, :zone_type, :zone_info, :person, :enriched_data)
+                        (timestamp, entity_id, state, room, sensor_type, attributes, derived_features)
+                        VALUES (:timestamp, :entity_id, :state, :room, :sensor_type, :attributes, :derived_features)
                         ON CONFLICT (timestamp, entity_id) DO UPDATE SET
                         state = EXCLUDED.state,
-                        numeric_value = EXCLUDED.numeric_value,
-                        attributes = EXCLUDED.attributes,
                         room = EXCLUDED.room,
                         sensor_type = EXCLUDED.sensor_type,
-                        zone_type = EXCLUDED.zone_type,
-                        zone_info = EXCLUDED.zone_info,
-                        person = EXCLUDED.person,
-                        enriched_data = EXCLUDED.enriched_data
+                        attributes = EXCLUDED.attributes,
+                        derived_features = EXCLUDED.derived_features
                     """),
                     {
                         'timestamp': event['timestamp'],
                         'entity_id': event['entity_id'],
                         'state': event['state'],
-                        'numeric_value': event.get('numeric_value'),
-                        'attributes': json.dumps(event.get('attributes', {})),
                         'room': event.get('room'),
                         'sensor_type': event.get('sensor_type'),
-                        'zone_type': event.get('zone_type'),
-                        'zone_info': json.dumps(event.get('zone_info', {})),
-                        'person': event.get('person'),
-                        'enriched_data': json.dumps(event.get('enriched_data', {}))
+                        'attributes': json.dumps(event.get('attributes', {})),
+                        'derived_features': json.dumps(event.get('derived', {}))
                     }
                 )
                 await session.commit()
@@ -268,7 +238,7 @@ class TimescaleDBManager:
         """Get historical sensor events from time-series database"""
         try:
             query = """
-                SELECT timestamp, entity_id, state, numeric_value, attributes, room, sensor_type, zone_type, zone_info, person, enriched_data
+                SELECT timestamp, entity_id, state, room, sensor_type, attributes, derived_features
                 FROM sensor_events 
                 WHERE timestamp >= :start_time AND timestamp <= :end_time
             """
@@ -294,14 +264,10 @@ class TimescaleDBManager:
                         'timestamp': row.timestamp,
                         'entity_id': row.entity_id,
                         'state': row.state,
-                        'numeric_value': row.numeric_value,
-                        'attributes': row.attributes or {},
                         'room': row.room,
                         'sensor_type': row.sensor_type,
-                        'zone_type': row.zone_type,
-                        'zone_info': row.zone_info or {},
-                        'person': row.person,
-                        'enriched_data': row.enriched_data or {}
+                        'attributes': row.attributes or {},
+                        'derived': row.derived_features or {}
                     })
                 
                 return events
@@ -360,7 +326,7 @@ class TimescaleDBManager:
             start_time = end_time - timedelta(hours=hours)
             
             query = """
-                SELECT timestamp, entity_id, state, sensor_type, zone_type, zone_info, person, enriched_data
+                SELECT timestamp, entity_id, state, sensor_type, derived_features
                 FROM sensor_events 
                 WHERE room = :room 
                 AND timestamp >= :start_time 
@@ -386,10 +352,7 @@ class TimescaleDBManager:
                         'entity_id': row.entity_id,
                         'state': row.state,
                         'sensor_type': row.sensor_type,
-                        'zone_type': row.zone_type,
-                        'zone_info': row.zone_info or {},
-                        'person': row.person,
-                        'enriched_data': row.enriched_data or {}
+                        'derived_features': row.derived_features or {}
                     })
                 
                 df = pd.DataFrame(data)
