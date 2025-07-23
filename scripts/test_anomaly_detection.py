@@ -69,8 +69,8 @@ async def test_anomaly_detection():
                 print(f"🔍 Anomaly type: {type(anomaly)}")
                 
                 # Convert anomaly data to JSON-serializable format (same as fixed code)
-                # Always use the SQLAlchemy Row method since that's what we get from database queries
-                anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
+                # SQLAlchemy Row objects have _mapping attribute
+                anomaly_dict = dict(anomaly._mapping)
                 
                 print(f"🔍 Converted dict: {anomaly_dict}")
                 

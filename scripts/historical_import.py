@@ -670,8 +670,8 @@ class HistoricalDataImporter:
                 from sqlalchemy import text
                 for anomaly in anomalies:
                     # Convert anomaly data to JSON-serializable format
-                    # SQLAlchemy returns Row objects from queries, use keys() method
-                    anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
+                    # SQLAlchemy returns Row objects from queries, access via _mapping
+                    anomaly_dict = dict(anomaly._mapping)
                     
                     # Convert non-JSON-serializable objects to strings
                     for key, value in anomaly_dict.items():
