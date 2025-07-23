@@ -205,7 +205,8 @@ class FixedSystemBootstrap:
                     zone_info JSONB,
                     person VARCHAR(50),
                     derived_features JSONB,
-                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                    processed_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (timestamp, entity_id)
                 );""",
                 
                 # Predictions table
