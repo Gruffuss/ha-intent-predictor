@@ -186,102 +186,105 @@ class FixedSystemBootstrap:
         async with self.components['timeseries_db'].engine.begin() as conn:
             from sqlalchemy import text
             
-            # Read and execute the correct schema from the artifact
-            schema_sql = """
-            -- Enable TimescaleDB extension
-            CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
-
-            -- Main sensor events table
-            CREATE TABLE IF NOT EXISTS sensor_events (
-                id BIGSERIAL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                entity_id VARCHAR(255) NOT NULL,
-                state VARCHAR(50),
-                numeric_value DOUBLE PRECISION,
-                attributes JSONB,
-                room VARCHAR(100),
-                sensor_type VARCHAR(50),
-                zone_type VARCHAR(50),
-                zone_info JSONB,
-                person VARCHAR(50),
-                enriched_data JSONB,
-                processed_at TIMESTAMPTZ DEFAULT NOW()
-            );
-            """
-            await conn.execute(text(schema_sql))
+            # Execute each SQL statement individually to avoid multi-statement errors
+            sql_statements = [
+                # Enable TimescaleDB extension
+                "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;",
+                
+                # Main sensor events table
+                """CREATE TABLE IF NOT EXISTS sensor_events (
+                    id BIGSERIAL,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    entity_id VARCHAR(255) NOT NULL,
+                    state VARCHAR(50),
+                    numeric_value DOUBLE PRECISION,
+                    attributes JSONB,
+                    room VARCHAR(100),
+                    sensor_type VARCHAR(50),
+                    zone_type VARCHAR(50),
+                    zone_info JSONB,
+                    person VARCHAR(50),
+                    enriched_data JSONB,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );""",
+                
+                # Predictions table
+                """CREATE TABLE IF NOT EXISTS predictions (
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room TEXT NOT NULL,
+                    horizon_minutes INTEGER NOT NULL,
+                    probability FLOAT NOT NULL,
+                    uncertainty FLOAT NOT NULL,
+                    confidence FLOAT NOT NULL,
+                    model_name TEXT,
+                    features JSONB,
+                    metadata JSONB,
+                    PRIMARY KEY (timestamp, room, horizon_minutes)
+                );""",
+                
+                # Pattern discoveries table
+                """CREATE TABLE IF NOT EXISTS pattern_discoveries (
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
+                    pattern_data JSONB NOT NULL,
+                    significance_score FLOAT NOT NULL,
+                    frequency INTEGER NOT NULL,
+                    metadata JSONB,
+                    PRIMARY KEY (timestamp, room, pattern_type)
+                );""",
+                
+                # Model performance table
+                """CREATE TABLE IF NOT EXISTS model_performance (
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    model_name TEXT NOT NULL,
+                    room TEXT NOT NULL,
+                    horizon_minutes INTEGER NOT NULL,
+                    accuracy FLOAT,
+                    auc_score FLOAT,
+                    precision_score FLOAT,
+                    recall_score FLOAT,
+                    sample_count INTEGER,
+                    metadata JSONB,
+                    PRIMARY KEY (timestamp, model_name, room, horizon_minutes)
+                );""",
+                
+                # Room occupancy table
+                """CREATE TABLE IF NOT EXISTS room_occupancy (
+                    id BIGSERIAL,
+                    timestamp TIMESTAMPTZ NOT NULL,
+                    room VARCHAR(100) NOT NULL,
+                    occupied BOOLEAN NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    inference_method VARCHAR(100),
+                    supporting_evidence JSONB,
+                    person VARCHAR(50),
+                    duration_minutes INTEGER,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );""",
+                
+                # Discovered patterns table (for initial bootstrap patterns)
+                """CREATE TABLE IF NOT EXISTS discovered_patterns (
+                    id BIGSERIAL PRIMARY KEY,
+                    room VARCHAR(100) NOT NULL,
+                    pattern_type VARCHAR(100) NOT NULL,
+                    pattern_data JSONB NOT NULL,
+                    significance_score DOUBLE PRECISION,
+                    confidence DOUBLE PRECISION,
+                    support_count INTEGER,
+                    discovered_at TIMESTAMPTZ DEFAULT NOW(),
+                    last_validated TIMESTAMPTZ,
+                    is_active BOOLEAN DEFAULT TRUE
+                );"""
+            ]
             
-            # Create other tables
-            tables_sql = """
-            -- Predictions table
-            CREATE TABLE IF NOT EXISTS predictions (
-                timestamp TIMESTAMPTZ NOT NULL,
-                room TEXT NOT NULL,
-                horizon_minutes INTEGER NOT NULL,
-                probability FLOAT NOT NULL,
-                uncertainty FLOAT NOT NULL,
-                confidence FLOAT NOT NULL,
-                model_name TEXT,
-                features JSONB,
-                metadata JSONB,
-                PRIMARY KEY (timestamp, room, horizon_minutes)
-            );
-            
-            -- Pattern discoveries table
-            CREATE TABLE IF NOT EXISTS pattern_discoveries (
-                timestamp TIMESTAMPTZ NOT NULL,
-                room TEXT NOT NULL,
-                pattern_type TEXT NOT NULL,
-                pattern_data JSONB NOT NULL,
-                significance_score FLOAT NOT NULL,
-                frequency INTEGER NOT NULL,
-                metadata JSONB,
-                PRIMARY KEY (timestamp, room, pattern_type)
-            );
-            
-            -- Model performance table
-            CREATE TABLE IF NOT EXISTS model_performance (
-                timestamp TIMESTAMPTZ NOT NULL,
-                model_name TEXT NOT NULL,
-                room TEXT NOT NULL,
-                horizon_minutes INTEGER NOT NULL,
-                accuracy FLOAT,
-                auc_score FLOAT,
-                precision_score FLOAT,
-                recall_score FLOAT,
-                sample_count INTEGER,
-                metadata JSONB,
-                PRIMARY KEY (timestamp, model_name, room, horizon_minutes)
-            );
-            
-            -- Room occupancy table
-            CREATE TABLE IF NOT EXISTS room_occupancy (
-                id BIGSERIAL,
-                timestamp TIMESTAMPTZ NOT NULL,
-                room VARCHAR(100) NOT NULL,
-                occupied BOOLEAN NOT NULL,
-                confidence DOUBLE PRECISION,
-                inference_method VARCHAR(100),
-                supporting_evidence JSONB,
-                person VARCHAR(50),
-                duration_minutes INTEGER,
-                processed_at TIMESTAMPTZ DEFAULT NOW()
-            );
-            
-            -- Discovered patterns table (for initial bootstrap patterns)
-            CREATE TABLE IF NOT EXISTS discovered_patterns (
-                id BIGSERIAL PRIMARY KEY,
-                room VARCHAR(100) NOT NULL,
-                pattern_type VARCHAR(100) NOT NULL,
-                pattern_data JSONB NOT NULL,
-                significance_score DOUBLE PRECISION,
-                confidence DOUBLE PRECISION,
-                support_count INTEGER,
-                discovered_at TIMESTAMPTZ DEFAULT NOW(),
-                last_validated TIMESTAMPTZ,
-                is_active BOOLEAN DEFAULT TRUE
-            );
-            """
-            await conn.execute(text(tables_sql))
+            # Execute each statement individually
+            for sql_statement in sql_statements:
+                try:
+                    await conn.execute(text(sql_statement))
+                    logger.info(f"Successfully executed SQL statement")
+                except Exception as e:
+                    logger.warning(f"SQL statement execution warning (may already exist): {e}")
         
         # Create hypertables in separate transaction
         async with self.components['timeseries_db'].engine.begin() as conn:
