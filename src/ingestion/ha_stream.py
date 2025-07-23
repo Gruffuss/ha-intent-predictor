@@ -307,7 +307,7 @@ class HADataStream:
                 "zone_type": enriched_event.derived.get('zone_info', {}).get('zone_type'),
                 "zone_info": enriched_event.derived.get('zone_info', {}),
                 "person": enriched_event.derived.get('zone_info', {}).get('person'),
-                "enriched_data": enriched_event.derived
+                "derived_features": enriched_event.derived
             }
             await self.timeseries_db.insert_sensor_event(event_dict)
             

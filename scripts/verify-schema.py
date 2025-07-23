@@ -81,7 +81,7 @@ async def verify_schema():
         expected_columns = [
             'timestamp', 'entity_id', 'state', 'numeric_value', 
             'attributes', 'room', 'sensor_type', 'zone_type', 
-            'zone_info', 'person', 'enriched_data'
+            'zone_info', 'person', 'derived_features'
         ]
         
         if columns:

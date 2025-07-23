@@ -195,7 +195,7 @@ class SystemBootstrap:
                 zone_type VARCHAR(50),
                 zone_info JSONB,
                 person VARCHAR(50),
-                enriched_data JSONB,
+                derived_features JSONB,
                 processed_at TIMESTAMPTZ DEFAULT NOW()
             );
         """)
