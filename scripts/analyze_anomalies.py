@@ -7,8 +7,9 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add src to path
+# Add src and config to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from storage.timeseries_db import TimescaleDBManager
 from config.config_loader import ConfigLoader
