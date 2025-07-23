@@ -638,9 +638,10 @@ class HistoricalDataImporter:
         """Detect anomalies in sensor data (potential cat activity)"""
         logger.info("Detecting anomalies...")
         
-        # Look for impossible movements
+        # Look for truly impossible movements (very fast between non-adjacent rooms)
+        # Updated criteria: exclude hallways, use realistic 1-second threshold for distant rooms
         anomalies = await self._query_database("""
-            WITH rapid_movements AS (
+            WITH impossible_movements AS (
                 SELECT 
                     e1.timestamp as t1,
                     e2.timestamp as t2,
@@ -656,10 +657,20 @@ class HistoricalDataImporter:
                 AND e1.state = 'on'
                 AND e2.state = 'on'
                 AND e1.room != e2.room
-                AND EXTRACT(EPOCH FROM (e2.timestamp - e1.timestamp)) < 5
+                -- Exclude hallways and unknown rooms from anomaly detection
+                AND e1.room NOT IN ('unknown', 'ground_floor_hallway', 'upper_hallway')
+                AND e2.room NOT IN ('unknown', 'ground_floor_hallway', 'upper_hallway')
+                -- Only flag movements between distant rooms (not adjacent)
+                AND NOT (
+                    (e1.room = 'living_kitchen' AND e2.room IN ('bedroom', 'office')) OR
+                    (e2.room = 'living_kitchen' AND e1.room IN ('bedroom', 'office')) OR
+                    (e1.room = 'bedroom' AND e2.room = 'office') OR
+                    (e2.room = 'bedroom' AND e1.room = 'office')
+                )
+                AND EXTRACT(EPOCH FROM (e2.timestamp - e1.timestamp)) < 2
             )
-            SELECT * FROM rapid_movements
-            WHERE time_diff < 3  -- Less than 3 seconds between rooms
+            SELECT * FROM impossible_movements
+            WHERE time_diff < 1  -- Less than 1 second between distant rooms
         """)
         
         self.stats['anomalies_detected'] = len(anomalies)
@@ -689,9 +700,9 @@ class HistoricalDataImporter:
                         ) VALUES (:room, :pattern_type, :pattern_data, :significance_score)
                     """), {
                         'room': 'multiple',
-                        'pattern_type': 'rapid_movement_anomaly',
+                        'pattern_type': 'impossible_movement_anomaly',
                         'pattern_data': json.dumps(anomaly_dict),
-                        'significance_score': 0.8
+                        'significance_score': 0.9  # Higher significance for truly impossible movements
                     })
     
     async def create_initial_feature_cache(self):
