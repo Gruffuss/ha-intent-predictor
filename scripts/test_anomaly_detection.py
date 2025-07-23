@@ -65,8 +65,22 @@ async def test_anomaly_detection():
         # Test the fixed JSON serialization
         for i, anomaly in enumerate(anomaly_results):
             try:
+                print(f"🔍 Anomaly {i+1} raw data: {anomaly}")
+                print(f"🔍 Anomaly type: {type(anomaly)}")
+                
                 # Convert anomaly data to JSON-serializable format (same as fixed code)
-                anomaly_dict = dict(anomaly)
+                if hasattr(anomaly, '_asdict'):
+                    # It's a named tuple
+                    anomaly_dict = anomaly._asdict()
+                elif hasattr(anomaly, 'keys'):
+                    # It's a row/mapping
+                    anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
+                else:
+                    # Try direct dict conversion
+                    anomaly_dict = dict(anomaly)
+                
+                print(f"🔍 Converted dict: {anomaly_dict}")
+                
                 # Convert datetime objects to ISO format strings
                 for key, value in anomaly_dict.items():
                     if hasattr(value, 'isoformat'):  # datetime objects
@@ -79,6 +93,8 @@ async def test_anomaly_detection():
                 
             except Exception as e:
                 print(f"❌ Anomaly {i+1}: JSON serialization failed: {e}")
+                import traceback
+                traceback.print_exc()
                 return False
     
     else:
