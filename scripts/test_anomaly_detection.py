@@ -69,11 +69,8 @@ async def test_anomaly_detection():
                 print(f"🔍 Anomaly type: {type(anomaly)}")
                 
                 # Convert anomaly data to JSON-serializable format (same as fixed code)
-                if hasattr(anomaly, 'keys'):
-                    # It's a SQLAlchemy Row object
-                    anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
-                else:
-                    anomaly_dict = dict(anomaly)
+                # Always use the SQLAlchemy Row method since that's what we get from database queries
+                anomaly_dict = {key: anomaly[key] for key in anomaly.keys()}
                 
                 print(f"🔍 Converted dict: {anomaly_dict}")
                 
