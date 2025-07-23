@@ -669,6 +669,13 @@ class HistoricalDataImporter:
             async with self.timeseries_db.engine.begin() as conn:
                 from sqlalchemy import text
                 for anomaly in anomalies:
+                    # Convert anomaly data to JSON-serializable format
+                    anomaly_dict = dict(anomaly)
+                    # Convert datetime objects to ISO format strings
+                    for key, value in anomaly_dict.items():
+                        if hasattr(value, 'isoformat'):  # datetime objects
+                            anomaly_dict[key] = value.isoformat()
+                    
                     await conn.execute(text("""
                         INSERT INTO discovered_patterns (
                             room, pattern_type, pattern_data, significance_score
@@ -676,7 +683,7 @@ class HistoricalDataImporter:
                     """), {
                         'room': 'multiple',
                         'pattern_type': 'rapid_movement_anomaly',
-                        'pattern_data': json.dumps(dict(anomaly)),
+                        'pattern_data': json.dumps(anomaly_dict),
                         'significance_score': 0.8
                     })
     
@@ -717,7 +724,7 @@ class HistoricalDataImporter:
         for person_stat in person_stats:
             await self.feature_store.set(
                 f"person_stats:{person_stat['person']}", 
-                json.dumps(dict(person_stat)),
+                json.dumps(dict(person_stat), default=str),
                 ttl=3600
             )
     
