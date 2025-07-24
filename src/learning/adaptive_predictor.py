@@ -629,6 +629,45 @@ class AdaptiveOccupancyPredictor:
         except Exception as e:
             logger.error(f"Error retraining model for {room_id}: {e}")
     
+    async def adapt_features(self, room_id: str, affected_features: List[str]):
+        """Adapt features for a specific room based on drift detection"""
+        try:
+            logger.info(f"Adapting features for {room_id}: {affected_features}")
+            
+            # Trigger feature re-discovery for affected features
+            if hasattr(self, 'dynamic_feature_discovery'):
+                # Get recent events to re-analyze features
+                recent_events = await self.timeseries_db.get_recent_events(
+                    minutes=60,  # Last hour
+                    rooms=[room_id]
+                )
+                
+                if recent_events:
+                    # Re-discover features with recent data
+                    new_features = self.dynamic_feature_discovery.discover_features(recent_events)
+                    logger.info(f"Re-discovered {len(new_features)} features for {room_id}")
+                
+        except Exception as e:
+            logger.error(f"Error adapting features for {room_id}: {e}")
+    
+    async def system_wide_adaptation(self):
+        """Perform system-wide adaptation when multiple rooms show drift"""
+        try:
+            logger.info("Performing system-wide adaptation")
+            
+            # Retrain all models with fresh data
+            for room_id in self.rooms:
+                await self.retrain_model(room_id)
+            
+            # Reset performance tracking
+            if hasattr(self, 'performance_monitor'):
+                await self.performance_monitor.reset_all_metrics()
+                
+            logger.info("System-wide adaptation completed")
+            
+        except Exception as e:
+            logger.error(f"Error in system-wide adaptation: {e}")
+    
     def _convert_features_to_numeric(self, features: Dict[str, Any]) -> Dict[str, float]:
         """Convert feature dictionary to numeric values suitable for ML models"""
         numeric_features = {}

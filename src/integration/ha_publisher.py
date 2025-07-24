@@ -60,21 +60,21 @@ class DynamicHAIntegration:
                     try:
                         # Update trend entity
                         trend_data = await self.calculate_occupancy_trend(room)
-                        await self.set_state(f"sensor.occupancy_trend_{room}", {
+                        await self.ha.set_state(f"sensor.occupancy_trend_{room}", {
                             'state': trend_data.get('trend', 'stable'),
                             'attributes': trend_data
                         })
                         
                         # Update anomaly detection entity
                         anomaly_data = await self.detect_anomalous_pattern(room)
-                        await self.set_state(f"binary_sensor.occupancy_anomaly_{room}", {
+                        await self.ha.set_state(f"binary_sensor.occupancy_anomaly_{room}", {
                             'state': anomaly_data.get('anomaly_detected', False),
                             'attributes': anomaly_data
                         })
                         
                         # Update activity level entity
                         activity_data = await self.calculate_activity_level(room)
-                        await self.set_state(f"sensor.occupancy_activity_{room}", {
+                        await self.ha.set_state(f"sensor.occupancy_activity_{room}", {
                             'state': activity_data.get('activity_level', 'unknown'),
                             'attributes': activity_data
                         })
