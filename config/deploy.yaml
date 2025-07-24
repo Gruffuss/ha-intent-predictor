@@ -1,0 +1,28 @@
+{
+  "proxmox": {
+    "container_id": 200,
+    "container_name": "ha-intent-predictor",
+    "proxmox_host": "localhost",
+    "proxmox_user": "root"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "ha_predictor",
+    "user": "ha_predictor",
+    "password": "generate_secure_password"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "generate_secure_password"
+  },
+  "home_assistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "YOUR_LONG_LIVED_ACCESS_TOKEN"
+  },
+  "monitoring": {
+    "prometheus_enabled": true,
+    "grafana_enabled": true
+  }
+}
