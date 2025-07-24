@@ -229,8 +229,28 @@ class PatternDiscovery:
         """
         sequences = []
         
-        for start_idx in range(len(event_stream)):
-            for length in range(min_length, min(max_length + 1, len(event_stream) - start_idx + 1)):
+        # Validate inputs
+        if not event_stream or not isinstance(event_stream, list):
+            logger.warning(f"Invalid event_stream: {type(event_stream)}")
+            return sequences
+            
+        if not isinstance(min_length, int) or not isinstance(max_length, int):
+            logger.warning(f"Invalid length parameters: min_length={min_length}, max_length={max_length}")
+            return sequences
+            
+        if min_length < 1 or max_length < min_length:
+            logger.warning(f"Invalid length values: min_length={min_length}, max_length={max_length}")
+            return sequences
+        
+        # Extract sequences safely
+        stream_length = len(event_stream)
+        if stream_length < min_length:
+            logger.debug(f"Event stream too short ({stream_length}) for min_length ({min_length})")
+            return sequences
+        
+        for start_idx in range(stream_length):
+            max_possible_length = min(max_length + 1, stream_length - start_idx + 1)
+            for length in range(min_length, max_possible_length):
                 sequence = event_stream[start_idx:start_idx + length]
                 sequences.append(sequence)
         
@@ -241,10 +261,18 @@ class PatternDiscovery:
         Test if patterns within time window are statistically significant
         """
         try:
+            # Validate inputs
+            if not isinstance(window_minutes, int):
+                logger.warning(f"Invalid window_minutes type: {type(window_minutes)} - {window_minutes}")
+                return 0.0
+                
+            if not sequences or not isinstance(sequences, list):
+                logger.debug(f"Invalid sequences input: {type(sequences)}")
+                return 0.0
             # Group sequences by time window
             windowed_patterns = self.group_by_time_window(sequences, window_minutes)
             
-            if len(windowed_patterns) < 2:
+            if not windowed_patterns or len(windowed_patterns) < 2:
                 return 0.0
             
             # Use chi-squared test for independence

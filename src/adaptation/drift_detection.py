@@ -361,6 +361,13 @@ class DriftDetector:
                 # Ensure feature_values is a list before slicing
                 if isinstance(feature_values, list) and len(feature_values) > 0:
                     recent_values = feature_values[-10:]  # Last 10 values
+                elif hasattr(feature_values, '__iter__') and not isinstance(feature_values, (str, dict)):
+                    # Handle other iterable types by converting to list first
+                    try:
+                        feature_list = list(feature_values)
+                        recent_values = feature_list[-10:] if len(feature_list) > 0 else []
+                    except (TypeError, ValueError):
+                        recent_values = []
                 else:
                     recent_values = []
                 
@@ -490,7 +497,7 @@ class DriftDetector:
         if alert.recommended_action == "retrain_model":
             # Trigger model retraining
             logger.info(f"Triggering model retraining for room {alert.room_id}")
-            await predictor.retrain_room_model(alert.room_id)
+            await predictor.retrain_model(alert.room_id)
             
         elif alert.recommended_action == "adapt_features":
             # Trigger feature adaptation

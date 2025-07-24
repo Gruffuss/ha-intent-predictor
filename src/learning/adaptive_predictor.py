@@ -140,7 +140,10 @@ class AdaptiveOccupancyPredictor:
                 top_features = self.adaptive_feature_selector.get_top_features(25)
                 filtered_features = {name: features.get(name, 0) for name, _ in top_features}
                 
-                self.short_term_models[room_id].learn_one(filtered_features, outcome)
+                # Convert to numeric features before training
+                numeric_features = self._convert_features_to_numeric(filtered_features)
+                if numeric_features:  # Only train if we have valid features
+                    self.short_term_models[room_id].learn_one(numeric_features, outcome)
             
             # 8. Update long-term pattern discovery
             if room_id in self.long_term_models:
@@ -366,8 +369,11 @@ class AdaptiveOccupancyPredictor:
             # Update multi-horizon predictor
             features = predicted.get('features_used', {})
             if isinstance(features, dict):
-                occupancy_dict = {horizon_minutes: actual}
-                self.multi_horizon_predictor.learn_one(room_id, features, occupancy_dict)
+                # Convert features to numeric format
+                numeric_features = self._convert_features_to_numeric(features)
+                if numeric_features:  # Only train if we have valid features
+                    occupancy_dict = {horizon_minutes: actual}
+                    self.multi_horizon_predictor.learn_one(room_id, numeric_features, occupancy_dict)
             
             return performance_result
             
@@ -610,12 +616,50 @@ class AdaptiveOccupancyPredictor:
                     occupancy = self.determine_occupancy(event)
                     if occupancy is not None:
                         features = self.dynamic_feature_discovery.discover_features([event])
-                        self.short_term_models[room_id].learn_one(features, occupancy)
+                        # Ensure features are numeric and valid for ML models
+                        numeric_features = self._convert_features_to_numeric(features)
+                        if numeric_features:  # Only train if we have valid features
+                            self.short_term_models[room_id].learn_one(numeric_features, occupancy)
                 
                 logger.info(f"Model retrained for {room_id} with {len(historical_data)} events")
                 
         except Exception as e:
             logger.error(f"Error retraining model for {room_id}: {e}")
+    
+    def _convert_features_to_numeric(self, features: Dict[str, Any]) -> Dict[str, float]:
+        """Convert feature dictionary to numeric values suitable for ML models"""
+        numeric_features = {}
+        
+        for key, value in features.items():
+            try:
+                if isinstance(value, (int, float)):
+                    numeric_features[key] = float(value)
+                elif isinstance(value, bool):
+                    numeric_features[key] = float(value)
+                elif isinstance(value, str):
+                    # Try to convert string to number
+                    try:
+                        numeric_features[key] = float(value)
+                    except ValueError:
+                        # Hash string to a consistent numeric value
+                        numeric_features[key] = float(hash(value) % 10000) / 10000.0
+                elif isinstance(value, (list, tuple)):
+                    # Use length or sum for lists/tuples
+                    if all(isinstance(x, (int, float)) for x in value):
+                        numeric_features[key] = float(sum(value))
+                    else:
+                        numeric_features[key] = float(len(value))
+                elif isinstance(value, dict):
+                    # Use number of keys for dictionaries
+                    numeric_features[key] = float(len(value))
+                else:
+                    # Default fallback for other types
+                    numeric_features[key] = 0.0
+            except Exception as e:
+                logger.warning(f"Failed to convert feature {key}={value} to numeric: {e}")
+                numeric_features[key] = 0.0
+        
+        return numeric_features
     
     async def manual_training(self, room_id: Optional[str] = None, 
                             force_retrain: bool = False, 
