@@ -659,9 +659,16 @@ class AdaptiveOccupancyPredictor:
             # Get model performance
             model_performance = {}
             for model_name, perf_metric in model.model_performance.items():
-                if hasattr(perf_metric, 'get') and perf_metric.n > 0:
-                    model_performance[model_name] = perf_metric.get()
-                else:
+                try:
+                    if hasattr(perf_metric, 'get'):
+                        # Try to get the metric value
+                        metric_value = perf_metric.get()
+                        model_performance[model_name] = metric_value if metric_value is not None else 0.0
+                    elif hasattr(perf_metric, '__float__'):
+                        model_performance[model_name] = float(perf_metric)
+                    else:
+                        model_performance[model_name] = 0.0
+                except Exception:
                     model_performance[model_name] = 0.0
             
             # Get overall accuracy
@@ -694,6 +701,39 @@ class AdaptiveOccupancyPredictor:
         Simple wrapper around self.rooms for compatibility
         """
         return self.rooms
+    
+    async def get_recent_features(self, room_id: str, limit: int = 100) -> Dict[str, List[float]]:
+        """
+        Get recent feature values for drift detection
+        Returns features organized by feature name with lists of recent values
+        """
+        try:
+            # Get recent events to extract features from
+            recent_events = await self.timeseries_db.get_recent_events(minutes=60, rooms=[room_id])
+            
+            if not recent_events:
+                return {}
+            
+            # Extract features from recent events and organize by feature name
+            feature_history = {}
+            
+            # Limit to most recent events
+            recent_events = recent_events[-limit:] if len(recent_events) > limit else recent_events
+            
+            for event in recent_events:
+                # Extract features from each event
+                features = self.dynamic_feature_discovery.discover_features([event])
+                
+                for feature_name, feature_value in features.items():
+                    if feature_name not in feature_history:
+                        feature_history[feature_name] = []
+                    feature_history[feature_name].append(float(feature_value) if feature_value is not None else 0.0)
+            
+            return feature_history
+            
+        except Exception as e:
+            logger.error(f"Error getting recent features for {room_id}: {e}")
+            return {}
     
     async def get_room_performance(self, room_id: str) -> Dict[str, Any]:
         """

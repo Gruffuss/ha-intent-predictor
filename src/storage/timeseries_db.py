@@ -455,21 +455,21 @@ class TimescaleDBManager:
         """Get recent predictions from database"""
         try:
             async with self.session_factory() as session:
-                query = """
+                query = f"""
                     SELECT timestamp, room, horizon_minutes, probability, uncertainty, 
                            confidence, model_name, features, metadata
                     FROM predictions 
-                    WHERE timestamp >= NOW() - INTERVAL '%s hours'
+                    WHERE timestamp >= NOW() - INTERVAL '{hours} hours'
                 """
-                params = [hours]
+                params = {}
                 
                 if room:
-                    query += " AND room = %s"
-                    params.append(room)
+                    query += " AND room = :room"
+                    params['room'] = room
                     
                 if horizon:
-                    query += " AND horizon_minutes = %s"
-                    params.append(horizon)
+                    query += " AND horizon_minutes = :horizon"
+                    params['horizon'] = horizon
                     
                 query += " ORDER BY timestamp DESC"
                 
