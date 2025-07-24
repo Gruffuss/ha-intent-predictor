@@ -118,8 +118,9 @@ class ADWINDetector:
         
         # Simple change detection
         if len(self.window) >= 50:
-            recent_mean = sum(list(self.window)[-25:]) / 25
-            older_mean = sum(list(self.window)[-50:-25]) / 25
+            window_list = list(self.window)
+            recent_mean = sum(window_list[-25:]) / 25
+            older_mean = sum(window_list[-50:-25]) / 25
             
             if abs(recent_mean - older_mean) > 3 * np.sqrt(self.variance):
                 return True
@@ -325,7 +326,8 @@ class DriftDetector:
         detector = self.room_detectors[room_id]['accuracy']
         
         # Update with recent accuracy values
-        for accuracy_value in performance_data['accuracy_history'][-10:]:  # Last 10 values
+        accuracy_history = performance_data.get('accuracy_history', [])
+        for accuracy_value in accuracy_history[-10:] if accuracy_history else []:  # Last 10 values
             drift_info = detector.update(accuracy_value)
             
             if drift_info:
@@ -360,7 +362,7 @@ class DriftDetector:
                 # Update with recent values
                 # Ensure feature_values is a list before slicing
                 if isinstance(feature_values, list) and len(feature_values) > 0:
-                    recent_values = feature_values[-10:]  # Last 10 values
+                    recent_values = feature_values[-10:] if feature_values else []  # Last 10 values
                 elif hasattr(feature_values, '__iter__') and not isinstance(feature_values, (str, dict)):
                     # Handle other iterable types by converting to list first
                     try:
@@ -481,7 +483,7 @@ class DriftDetector:
         
         # Get unprocessed alerts
         recent_alerts = [
-            alert for alert in self.drift_alerts[-10:]  # Last 10 alerts
+            alert for alert in (self.drift_alerts[-10:] if self.drift_alerts else [])  # Last 10 alerts
             if alert.detected_at > datetime.now() - timedelta(minutes=5)
         ]
         
