@@ -170,8 +170,8 @@ class HAIntentPredictorSystem:
         logger.info("Initializing HA integration...")
         
         # Dynamic entity creation and updates
-        # First create HA API instance
-        from src.ingestion.ha_stream import HomeAssistantAPI
+        # Import the correct HA API class for entity management
+        from src.integration.ha_publisher import HomeAssistantAPI
         ha_api = HomeAssistantAPI(
             ha_url=self.config.get('home_assistant.url'),
             token=self.config.get('home_assistant.token')
