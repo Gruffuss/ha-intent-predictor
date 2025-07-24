@@ -552,7 +552,10 @@ class AdaptiveOccupancyPredictor:
                 
                 if len(recent_events) > 10:  # Need minimum data
                     patterns = self.pattern_discovery.discover_patterns(recent_events, room_id)
-                    logger.debug(f"Updated patterns for {room_id}: {len(patterns)} patterns found")
+                    if patterns is not None:
+                        logger.debug(f"Updated patterns for {room_id}: {len(patterns)} patterns found")
+                    else:
+                        logger.debug(f"No patterns discovered for {room_id}")
                     
         except Exception as e:
             logger.error(f"Error updating pattern discovery: {e}")

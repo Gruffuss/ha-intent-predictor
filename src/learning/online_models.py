@@ -56,8 +56,13 @@ class ContinuousLearningModel:
         Update all models with single observation
         Core of the adaptive learning system
         """
-        # Preprocess features
-        processed_features = self.preprocessor.learn_one(features).transform_one(features)
+        # Preprocess features - handle potential None return from learn_one
+        try:
+            self.preprocessor.learn_one(features)
+            processed_features = self.preprocessor.transform_one(features)
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Preprocessor error for {self.room_id}: {e}, using raw features")
+            processed_features = features
         
         # Update each model
         for name, model in self.models.items():
@@ -84,8 +89,12 @@ class ContinuousLearningModel:
         Ensemble prediction with uncertainty quantification
         """
         try:
-            # Preprocess features
-            processed_features = self.preprocessor.transform_one(features)
+            # Preprocess features - handle potential preprocessor issues
+            try:
+                processed_features = self.preprocessor.transform_one(features)
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"Preprocessor error in prediction for {self.room_id}: {e}, using raw features")
+                processed_features = features
             
             # Get predictions from all models
             predictions = self.get_model_predictions(processed_features)

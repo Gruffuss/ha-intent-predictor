@@ -481,9 +481,10 @@ class DriftDetector:
     async def _process_alerts(self, predictor):
         """Process drift alerts and trigger appropriate actions"""
         
-        # Get unprocessed alerts
+        # Get unprocessed alerts - convert deque to list first for slicing
+        alerts_list = list(self.drift_alerts) if self.drift_alerts else []
         recent_alerts = [
-            alert for alert in (self.drift_alerts[-10:] if self.drift_alerts else [])  # Last 10 alerts
+            alert for alert in alerts_list[-10:]  # Last 10 alerts
             if alert.detected_at > datetime.now() - timedelta(minutes=5)
         ]
         
