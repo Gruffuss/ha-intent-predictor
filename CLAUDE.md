@@ -16,6 +16,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Avoid duplicating existing functionality
 - Build upon existing codebase, don't recreate
 
+**3. CRITICAL: METHOD/FUNCTION EXISTENCE CHECK PROTOCOL**
+- **NEVER assume methods don't exist** when you see import or method call errors
+- **ALWAYS check the actual files first** using Grep, Read, or Glob tools
+- Methods may exist with slightly different names or signatures
+- Use this exact workflow when encountering "missing" methods:
+  1. `ssh ha-predictor 'cd /opt/ha-intent-predictor && find . -name "*.py" -type f | grep -v venv | grep -v __pycache__'` - List all project files
+  2. `Grep` the specific method name across the codebase  
+  3. `Read` the relevant files to check actual method signatures
+  4. Look for similar method names (e.g., `create_entity` vs `create_prediction_entity`)
+  5. **ONLY create new methods if they truly don't exist after thorough checking**
+- This prevents recreating existing functionality and maintains codebase integrity
+
 ## Project Overview
 
 This is an adaptive ML-based occupancy prediction system for Home Assistant that learns patterns without hardcoded assumptions. It provides 2-hour preheating and 15-minute precooling predictions using ensemble learning and real-time adaptation.
@@ -268,6 +280,14 @@ FastAPI ← Prediction Service → Home Assistant Entities
 - Problem: `cannot import name 'TimeSeriesDB'` 
 - Solution: Use correct class names: `TimescaleDBManager`, `RedisFeatureStore`
 - Always check actual class names with `Grep` before assuming
+
+**"Method Not Found" Errors** (CRITICAL WORKFLOW):
+- Problem: Errors like `'HomeAssistantAPI' object has no attribute 'create_entity'`
+- **NEVER assume the method doesn't exist**
+- **ALWAYS follow the Method Existence Check Protocol** (Rule #3 above)
+- 99% of the time, methods exist with slightly different names or signatures
+- Example: `create_entity` exists, error was just a runtime issue
+- **This prevents recreating existing functionality and maintains codebase integrity**
 
 **Timezone Errors** (CRITICAL):
 - Problem: "can't compare offset-naive and offset-aware datetimes"
