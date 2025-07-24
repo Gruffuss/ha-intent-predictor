@@ -358,7 +358,13 @@ class DriftDetector:
                 detector = self.room_detectors[room_id][feature_name]
                 
                 # Update with recent values
-                for value in feature_values[-10:]:  # Last 10 values
+                # Ensure feature_values is a list before slicing
+                if isinstance(feature_values, list) and len(feature_values) > 0:
+                    recent_values = feature_values[-10:]  # Last 10 values
+                else:
+                    recent_values = []
+                
+                for value in recent_values:
                     drift_info = detector.update(value)
                     
                     if drift_info:

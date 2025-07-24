@@ -727,7 +727,24 @@ class AdaptiveOccupancyPredictor:
                 for feature_name, feature_value in features.items():
                     if feature_name not in feature_history:
                         feature_history[feature_name] = []
-                    feature_history[feature_name].append(float(feature_value) if feature_value is not None else 0.0)
+                    
+                    # Convert feature value to float, handling different types
+                    try:
+                        if isinstance(feature_value, (int, float)):
+                            numeric_value = float(feature_value)
+                        elif isinstance(feature_value, str):
+                            numeric_value = float(feature_value) if feature_value.replace('.', '').replace('-', '').isdigit() else 0.0
+                        elif isinstance(feature_value, dict):
+                            # For dict features, use length or a hash-based numeric representation
+                            numeric_value = float(len(feature_value))
+                        elif feature_value is None:
+                            numeric_value = 0.0
+                        else:
+                            numeric_value = 0.0
+                    except (ValueError, TypeError):
+                        numeric_value = 0.0
+                    
+                    feature_history[feature_name].append(numeric_value)
             
             return feature_history
             
