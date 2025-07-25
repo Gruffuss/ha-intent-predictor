@@ -179,6 +179,7 @@ class HAIntentPredictorSystem:
         
         self.components['ha_publisher'] = DynamicHAIntegration(
             ha_api,
+            predictor=self.components['predictor'],
             timeseries_db=self.components['timeseries_db'],
             feature_store=self.components['feature_store']
         )

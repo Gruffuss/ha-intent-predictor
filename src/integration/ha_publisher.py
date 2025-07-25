@@ -19,8 +19,9 @@ class DynamicHAIntegration:
     Implements the exact approach from CLAUDE.md
     """
     
-    def __init__(self, ha_api, timeseries_db=None, feature_store=None):
+    def __init__(self, ha_api, predictor=None, timeseries_db=None, feature_store=None):
         self.ha = ha_api
+        self.predictor = predictor
         self.timeseries_db = timeseries_db
         self.feature_store = feature_store
         self.prediction_entities = {}
@@ -54,6 +55,18 @@ class DynamicHAIntegration:
             try:
                 # Publish current entity states and cleanup stale entities
                 await self.cleanup_stale_entities(max_age_hours=24)
+                
+                # Generate and publish predictions for each room
+                for room in rooms:
+                    try:
+                        # Generate predictions for all horizons
+                        if self.predictor:
+                            predictions = await self.predictor.predict_all_horizons(room)
+                            if predictions:
+                                await self.publish_predictions(room, predictions)
+                        
+                    except Exception as e:
+                        logger.warning(f"Error generating predictions for room {room}: {e}")
                 
                 # Update trend and anomaly entities for each room
                 for room in rooms:
