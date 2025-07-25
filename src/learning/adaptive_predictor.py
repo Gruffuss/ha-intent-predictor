@@ -99,7 +99,7 @@ class AdaptiveOccupancyPredictor:
             # Get ALL historical data (not just recent)
             from datetime import datetime, timedelta
             end_time = datetime.now()
-            start_time = end_time - timedelta(days=365)  # Up to 1 year of data
+            start_time = datetime(2020, 1, 1)  # Get ALL data from beginning of time
             
             historical_data = await self.timeseries_db.get_historical_events(
                 start_time=start_time,
