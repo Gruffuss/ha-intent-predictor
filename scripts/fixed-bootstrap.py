@@ -37,6 +37,69 @@ class FixedSystemBootstrap:
     def __init__(self, config_path: str = "config/system.yaml"):
         self.config = ConfigLoader(config_path)
         self.components = {}
+        
+        # Sensor groups from CLAUDE.md specification
+        self.sensor_groups = {
+            'presence_zones': [
+                'binary_sensor.presence_livingroom_full',
+                'binary_sensor.presence_livingroom_couch',
+                'binary_sensor.kitchen_pressence_full_kitchen',
+                'binary_sensor.kitchen_pressence_stove',
+                'binary_sensor.kitchen_pressence_sink',
+                'binary_sensor.kitchen_pressence_dining_table',
+                'binary_sensor.bedroom_presence_sensor_full_bedroom',
+                'binary_sensor.bedroom_presence_sensor_anca_bed_side',
+                'binary_sensor.bedroom_vladimir_bed_side',
+                'binary_sensor.bedroom_floor',
+                'binary_sensor.bedroom_entrance',
+                'binary_sensor.office_presence_full_office',
+                'binary_sensor.office_presence_anca_desk',
+                'binary_sensor.office_presence_vladimir_desk',
+                'binary_sensor.office_entrance',
+                'binary_sensor.bathroom_entrance',
+                'binary_sensor.presence_small_bathroom_entrance',
+                'binary_sensor.guest_bedroom_entrance',
+                'binary_sensor.presence_ground_floor_hallway',
+                'binary_sensor.upper_hallway',
+                'binary_sensor.upper_hallway_upstairs',
+                'binary_sensor.upper_hallway_downstairs',
+                'binary_sensor.presence_stairs_up_ground_floor'
+            ],
+            'doors': [
+                'binary_sensor.bathroom_door_sensor_contact',
+                'binary_sensor.bedroom_door_sensor_contact',
+                'binary_sensor.office_door_sensor_contact',
+                'binary_sensor.guest_bedroom_door_sensor_contact',
+                'binary_sensor.small_bathroom_door_sensor_contact'
+            ],
+            'climate': [
+                'sensor.livingroom_env_sensor_temperature',
+                'sensor.livingroom_env_sensor_humidity',
+                'sensor.bedroom_env_sensor_temperature',
+                'sensor.bedroom_env_sensor_humidity',
+                'sensor.office_env_sensor_temperature',
+                'sensor.office_env_sensor_humidity',
+                'sensor.bathroom_env_sensor_temperature',
+                'sensor.bathroom_env_sensor_humidity',
+                'sensor.guest_bedroom_env_sensor_temperature',
+                'sensor.guest_bedroom_env_sensor_humidity',
+                'sensor.upper_hallway_env_sensor_temperature',
+                'sensor.upper_hallway_env_sensor_humidity',
+                'sensor.attic_env_sensor_temperature',
+                'sensor.attic_env_sensor_humidity',
+                'sensor.big_bath_env_sensor_temperature',
+                'sensor.big_bath_env_sensor_humidity'
+            ],
+            'light_levels': [
+                'sensor.bedroom_presence_light_level',
+                'sensor.kitchen_pressence_light_level',
+                'sensor.livingroom_pressence_light_level',
+                'sensor.office_presence_light_level',
+                'sensor.upper_hallway_pressence_light_level'
+            ]
+        }
+        
+        logger.info("Fixed system bootstrap initialized")
     
     async def _wait_for_dependencies(self):
         """Wait for Docker services to be healthy before starting"""
