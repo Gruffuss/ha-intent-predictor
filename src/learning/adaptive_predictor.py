@@ -541,21 +541,34 @@ class AdaptiveOccupancyPredictor:
                 await asyncio.sleep(5)  # Wait before retry
     
     async def update_pattern_discovery(self):
-        """Update pattern discovery for all rooms"""
+        """Update pattern discovery for all rooms - throttled to prevent database overload"""
         try:
+            # Only run pattern discovery every 6 hours (not every minute!)
+            if not hasattr(self, 'last_pattern_discovery'):
+                self.last_pattern_discovery = {}
+            
+            current_time = datetime.now()
             for room_id in self.rooms:
-                # Get recent events for pattern analysis
+                # Check if we ran pattern discovery for this room recently
+                last_run = self.last_pattern_discovery.get(room_id)
+                if last_run and (current_time - last_run).total_seconds() < 21600:  # 6 hours
+                    continue
+                
+                # Get recent events for incremental pattern analysis (only last 2 hours)
                 recent_events = await self.timeseries_db.get_recent_events(
-                    minutes=1440,  # Last 24 hours
+                    minutes=120,  # Last 2 hours only (not 24 hours!)
                     rooms=[room_id]
                 )
                 
-                if len(recent_events) > 10:  # Need minimum data
+                if len(recent_events) > 50:  # Need more data for meaningful patterns
+                    logger.info(f"Running incremental pattern discovery for {room_id}")
                     patterns = self.pattern_discovery.discover_patterns(recent_events, room_id)
+                    self.last_pattern_discovery[room_id] = current_time
+                    
                     if patterns is not None:
                         logger.debug(f"Updated patterns for {room_id}: {len(patterns)} patterns found")
                     else:
-                        logger.debug(f"No patterns discovered for {room_id}")
+                        logger.debug(f"No new patterns discovered for {room_id}")
                     
         except Exception as e:
             logger.error(f"Error updating pattern discovery: {e}")
