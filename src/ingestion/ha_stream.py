@@ -444,12 +444,24 @@ class HADataStream:
             if room in ['livingroom', 'kitchen']:
                 room = 'living_kitchen'  # Unified space
             
-            # Calculate derived features
+            # Calculate derived features including temporal features
+            timestamp = event['timestamp']
             derived = {
                 'time_since_last_change': self.calculate_time_delta(event),
                 'state_transition': self.get_transition_type(event),
                 'concurrent_events': await self.find_concurrent_events(event),
-                'zone_info': self.extract_zone_info(entity_id)
+                'zone_info': self.extract_zone_info(entity_id),
+                # CRITICAL FIX: Add temporal features to derived data
+                'temporal_features': {
+                    'hour': timestamp.hour,
+                    'day_of_week': timestamp.weekday(),
+                    'minute_of_day': timestamp.hour * 60 + timestamp.minute,
+                    'is_weekend': 1 if timestamp.weekday() >= 5 else 0,
+                    'is_morning': 1 if 6 <= timestamp.hour <= 11 else 0,
+                    'is_afternoon': 1 if 12 <= timestamp.hour <= 17 else 0,
+                    'is_evening': 1 if 18 <= timestamp.hour <= 23 else 0,
+                    'is_night': 1 if timestamp.hour <= 5 or timestamp.hour >= 24 else 0
+                }
             }
             
             return EnrichedEvent(
