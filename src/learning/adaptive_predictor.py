@@ -516,13 +516,19 @@ class AdaptiveOccupancyPredictor:
         """
         logger.info("Starting continuous learning loop")
         
+        # Track last pattern discovery time
+        last_pattern_discovery = datetime.now() - timedelta(days=1)  # Force first run
+        
         while True:
             try:
                 # Periodic tasks
                 await asyncio.sleep(60)  # Run every minute
                 
-                # 1. Update pattern discovery
-                await self.update_pattern_discovery()
+                # 1. Update pattern discovery (only every 24 hours)
+                current_time = datetime.now()
+                if (current_time - last_pattern_discovery).total_seconds() >= 86400:  # 24 hours
+                    await self.update_pattern_discovery()
+                    last_pattern_discovery = current_time
                 
                 # 2. Optimize prediction horizons
                 await self.optimize_prediction_horizons()
@@ -541,21 +547,25 @@ class AdaptiveOccupancyPredictor:
                 await asyncio.sleep(5)  # Wait before retry
     
     async def update_pattern_discovery(self):
-        """Update pattern discovery for all rooms"""
+        """Update pattern discovery for all rooms - runs every 24 hours with incremental data"""
+        logger.info("Starting daily pattern discovery update")
         try:
             for room_id in self.rooms:
-                # Get recent events for pattern analysis
+                # Get last 24 hours of NEW data for incremental pattern analysis
                 recent_events = await self.timeseries_db.get_recent_events(
-                    minutes=1440,  # Last 24 hours
+                    minutes=1440,  # Last 24 hours of new data
                     rooms=[room_id]
                 )
                 
                 if len(recent_events) > 10:  # Need minimum data
+                    logger.info(f"Processing {len(recent_events)} new events for {room_id} pattern discovery")
                     patterns = self.pattern_discovery.discover_patterns(recent_events, room_id)
-                    if patterns is not None:
-                        logger.debug(f"Updated patterns for {room_id}: {len(patterns)} patterns found")
-                    else:
-                        logger.debug(f"No patterns discovered for {room_id}")
+                    
+                    # Get current pattern count
+                    current_patterns = len(self.pattern_discovery.pattern_library.get(room_id, set()))
+                    logger.info(f"Pattern discovery for {room_id}: {current_patterns} total patterns")
+                else:
+                    logger.info(f"Insufficient new data for {room_id}: {len(recent_events)} events")
                     
         except Exception as e:
             logger.error(f"Error updating pattern discovery: {e}")
