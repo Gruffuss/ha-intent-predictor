@@ -80,6 +80,9 @@ class AdaptiveOccupancyPredictor:
                 
                 # Long-term models for pattern discovery
                 self.long_term_models[room] = PatternDiscoveryModel(room)
+                
+                # Bootstrap training with ALL historical data
+                await self.bootstrap_model_with_historical_data(room)
             
             self.initialized = True
             logger.info("✅ Adaptive occupancy predictor initialized successfully")
@@ -87,6 +90,43 @@ class AdaptiveOccupancyPredictor:
         except Exception as e:
             logger.error(f"Failed to initialize adaptive predictor: {e}")
             raise
+    
+    async def bootstrap_model_with_historical_data(self, room_id: str):
+        """Bootstrap model with ALL historical data for initial training"""
+        try:
+            logger.info(f"Bootstrap training model for {room_id} with all historical data")
+            
+            # Get ALL historical data (not just recent)
+            from datetime import datetime, timedelta
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=365)  # Up to 1 year of data
+            
+            historical_data = await self.timeseries_db.get_historical_events(
+                start_time=start_time,
+                end_time=end_time,
+                rooms=[room_id]
+            )
+            
+            if len(historical_data) > 100:
+                logger.info(f"Bootstrap training {room_id} with {len(historical_data):,} historical events")
+                
+                # Train with ALL historical data
+                trained_count = 0
+                for event in historical_data:
+                    occupancy = self.determine_occupancy(event)
+                    if occupancy is not None:
+                        features = self.dynamic_feature_discovery.discover_features([event])
+                        numeric_features = self._convert_features_to_numeric(features)
+                        if numeric_features:
+                            self.short_term_models[room_id].learn_one(numeric_features, occupancy)
+                            trained_count += 1
+                
+                logger.info(f"✅ Bootstrap training completed for {room_id}: {trained_count:,} events processed")
+            else:
+                logger.warning(f"Insufficient historical data for {room_id}: {len(historical_data)} events")
+                
+        except Exception as e:
+            logger.error(f"Error bootstrapping model for {room_id}: {e}")
     
     async def learn_from_observation(self, 
                                    room_id: str, 
