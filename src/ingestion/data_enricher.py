@@ -26,7 +26,7 @@ class DynamicFeatureDiscovery:
         # CRITICAL FIX: Use StreamProcessor for proper temporal features
         self.stream_processor = StreamProcessor()
         
-    async def discover_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def discover_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Extract different types of features from zone combinations
         Automatically generate and test feature combinations
@@ -35,7 +35,7 @@ class DynamicFeatureDiscovery:
         Find variable-length temporal patterns
         """
         # CRITICAL FIX: Extract basic temporal features using StreamProcessor
-        basic_temporal_features = await self.extract_basic_temporal_features_from_stream(sensor_stream)
+        basic_temporal_features = self.extract_basic_temporal_features_from_stream(sensor_stream)
         
         # Extract zone combination features
         zone_features = self.extract_zone_combination_features(sensor_stream)
@@ -59,7 +59,7 @@ class DynamicFeatureDiscovery:
         
         return significant_features
     
-    async def extract_basic_temporal_features_from_stream(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def extract_basic_temporal_features_from_stream(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Extract basic temporal features using StreamProcessor
         CRITICAL FIX: Use existing StreamProcessor temporal feature extraction
