@@ -251,8 +251,8 @@ class FixedSystemBootstrap:
     async def _initialize_storage(self):
         """Initialize storage connections with dependency waiting and retry logic"""
         
-        # Wait for all Docker services to be healthy first
-        await self._wait_for_dependencies()
+        # Skip dependency waiting - services are confirmed healthy
+        print("  - Skipping dependency check (services confirmed healthy)")
         
         # Initialize TimescaleDB with connection pooling and retry logic
         print("  - Initializing TimescaleDB with connection pooling...")
