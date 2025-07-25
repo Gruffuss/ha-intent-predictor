@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Set, Tuple
 from datetime import datetime, timedelta
 import numpy as np
 from river import stats
+from .event_processor import StreamProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,10 @@ class DynamicFeatureDiscovery:
         self.feature_importance_tracker = {}
         self.interaction_detector = InteractionDiscovery()
         self.temporal_pattern_miner = TemporalMiner()
+        # CRITICAL FIX: Use StreamProcessor for proper temporal features
+        self.stream_processor = StreamProcessor()
         
-    def discover_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def discover_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Extract different types of features from zone combinations
         Automatically generate and test feature combinations
@@ -31,8 +34,8 @@ class DynamicFeatureDiscovery:
         Detect non-linear interactions between sensors
         Find variable-length temporal patterns
         """
-        # CRITICAL FIX: Extract basic temporal features first
-        basic_temporal_features = self.extract_basic_temporal_features(sensor_stream)
+        # CRITICAL FIX: Extract basic temporal features using StreamProcessor
+        basic_temporal_features = await self.extract_basic_temporal_features_from_stream(sensor_stream)
         
         # Extract zone combination features
         zone_features = self.extract_zone_combination_features(sensor_stream)
@@ -56,49 +59,44 @@ class DynamicFeatureDiscovery:
         
         return significant_features
     
-    def extract_basic_temporal_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def extract_basic_temporal_features_from_stream(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Extract fundamental temporal features that ML models need
-        CRITICAL FIX: Ensure hour, day_of_week reach ML models
+        Extract basic temporal features using StreamProcessor
+        CRITICAL FIX: Use existing StreamProcessor temporal feature extraction
         """
         if not sensor_stream:
             return {}
         
         # Get the most recent event for temporal context
-        latest_event = max(sensor_stream, key=lambda x: x.get('timestamp', x.get('timestamp', 0)))
+        latest_event = max(sensor_stream, key=lambda x: x.get('timestamp', 0))
         
-        # Extract temporal features from derived data if available
-        temporal_data = latest_event.get('derived', {}).get('temporal_features', {})
-        
-        # If not in derived, extract from timestamp directly
-        if not temporal_data and 'timestamp' in latest_event:
-            timestamp = latest_event['timestamp']
-            temporal_data = {
-                'hour': timestamp.hour,
-                'day_of_week': timestamp.weekday(),
-                'minute_of_day': timestamp.hour * 60 + timestamp.minute,
-                'is_weekend': 1 if timestamp.weekday() >= 5 else 0,
-                'is_morning': 1 if 6 <= timestamp.hour <= 11 else 0,
-                'is_afternoon': 1 if 12 <= timestamp.hour <= 17 else 0,
-                'is_evening': 1 if 18 <= timestamp.hour <= 23 else 0,
-                'is_night': 1 if timestamp.hour <= 5 or timestamp.hour >= 24 else 0
-            }
-        
-        # Add cyclical encoding for better ML performance
-        if 'hour' in temporal_data:
-            import math
-            hour = temporal_data['hour']
-            day_of_week = temporal_data.get('day_of_week', 0)
+        try:
+            # Use StreamProcessor's extract_basic_features method
+            basic_features = self.stream_processor.extract_basic_features(latest_event)
             
-            temporal_data.update({
-                'hour_sin': math.sin(2 * math.pi * hour / 24),
-                'hour_cos': math.cos(2 * math.pi * hour / 24),
-                'day_sin': math.sin(2 * math.pi * day_of_week / 7),
-                'day_cos': math.cos(2 * math.pi * day_of_week / 7),
-                'hour_weekday_interaction': hour * day_of_week
-            })
-        
-        return temporal_data
+            # Use StreamProcessor's extract_temporal_features method  
+            temporal_features = self.stream_processor.extract_temporal_features(latest_event)
+            
+            # Combine both feature sets
+            combined_features = {**basic_features, **temporal_features}
+            
+            return combined_features
+            
+        except Exception as e:
+            # Fallback to manual extraction if StreamProcessor fails
+            if 'timestamp' in latest_event:
+                timestamp = latest_event['timestamp']
+                return {
+                    'hour': timestamp.hour,
+                    'day_of_week': timestamp.weekday(),
+                    'minute_of_day': timestamp.hour * 60 + timestamp.minute,
+                    'is_weekend': 1 if timestamp.weekday() >= 5 else 0,
+                    'is_morning': 1 if 6 <= timestamp.hour <= 11 else 0,
+                    'is_afternoon': 1 if 12 <= timestamp.hour <= 17 else 0,
+                    'is_evening': 1 if 18 <= timestamp.hour <= 23 else 0,
+                    'is_night': 1 if timestamp.hour <= 5 or timestamp.hour >= 24 else 0
+                }
+            return {}
     
     def extract_zone_combination_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
