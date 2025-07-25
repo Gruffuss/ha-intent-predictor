@@ -219,8 +219,8 @@ class TimescaleDBManager:
                         'uncertainty': prediction['uncertainty'],
                         'confidence': prediction['confidence'],
                         'model_name': prediction.get('model_name'),
-                        'features': json.dumps(prediction.get('features', {})),
-                        'metadata': json.dumps(prediction.get('metadata', {}))
+                        'features': self._safe_json_dumps(prediction.get('features', {})),
+                        'metadata': self._safe_json_dumps(prediction.get('metadata', {}))
                     }
                 )
                 await session.commit()
@@ -544,6 +544,19 @@ class TimescaleDBManager:
         except Exception as e:
             logger.error(f"Error getting room activity summary for {room}: {e}")
             return {'room': room, 'total_events': 0, 'active_events': 0, 'activity_rate': 0.0}
+
+    def _safe_json_dumps(self, obj: Any) -> str:
+        """Safely serialize objects to JSON, handling datetime objects"""
+        def datetime_serializer(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+        
+        try:
+            return json.dumps(obj, default=datetime_serializer)
+        except Exception as e:
+            logger.warning(f"Error serializing object to JSON: {e}, using empty dict")
+            return json.dumps({})
 
     async def close(self):
         """Close database connections"""

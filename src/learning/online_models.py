@@ -353,17 +353,29 @@ class MetaLearner:
         
         for model_name in predictions.keys():
             # Base weight from historical performance
-            if self.model_scores[model_name].n > 10:  # Need minimum samples
-                base_score = self.model_scores[model_name].get()
-            else:
-                base_score = 0.5  # Neutral weight for new models
+            try:
+                # Check if we have enough samples for reliable score
+                if hasattr(self.model_scores[model_name], 'n') and self.model_scores[model_name].n > 10:
+                    base_score = self.model_scores[model_name].get()
+                else:
+                    base_score = 0.5  # Neutral weight for new models
+            except (AttributeError, ValueError):
+                base_score = 0.5  # Fallback for any metric access issues
             
             # Adjust based on recent performance
             recent_perf = performance_metrics.get(model_name)
-            if recent_perf and hasattr(recent_perf, 'get') and recent_perf.n > 0:
-                recent_score = recent_perf.get()
-                # Combine base and recent performance
-                final_score = base_score * 0.7 + recent_score * 0.3
+            if recent_perf and hasattr(recent_perf, 'get'):
+                try:
+                    recent_score = recent_perf.get()
+                    # Only use if we got a valid score (not None/NaN)
+                    if recent_score is not None and not (isinstance(recent_score, float) and recent_score != recent_score):
+                        # Combine base and recent performance
+                        final_score = base_score * 0.7 + recent_score * 0.3
+                    else:
+                        final_score = base_score
+                except (AttributeError, ValueError, TypeError):
+                    # Rolling metric might not be ready yet
+                    final_score = base_score
             else:
                 final_score = base_score
             
