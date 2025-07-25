@@ -480,55 +480,20 @@ class FixedSystemBootstrap:
             
             print(f"    - Training {room} models with {len(historical_events):,} events...")
             
-            # Train the room's models
+            # Train the room's models using manual_training
             try:
-                room_predictor = await self.components['predictor'].get_room_predictor(room)
-                
-                trained_count = 0
-                for i, event in enumerate(historical_events):
-                    # Determine occupancy from event
-                    occupancy = self._determine_occupancy_from_event(event)
-                    if occupancy is not None:
-                        # Extract features
-                        features = await self._extract_features_from_event(event)
-                        if features:
-                            # Train the model
-                            room_predictor.learn_one(features, occupancy)
-                            trained_count += 1
-                    
-                    # Progress update every 10k events
-                    if i % 10000 == 0 and i > 0:
-                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained)")
-                
-                print(f"    ✓ {room} training completed: {trained_count:,} events processed")
-                
-                # Save the trained model
-                await self.components['model_store'].save_room_model(room, room_predictor.save_model())
-                print(f"    ✓ {room} model saved to storage")
+                print(f"    - Training {room} with manual_training method...")
+                await self.components['predictor'].manual_training(
+                    room_id=room,
+                    force_retrain=True,
+                    include_historical=True
+                )
+                print(f"    ✓ {room} training completed successfully")
                 
             except Exception as e:
                 print(f"    ❌ Training failed for {room}: {e}")
                 logger.error(f"Training failed for {room}: {e}")
     
-    def _determine_occupancy_from_event(self, event):
-        """Determine occupancy from sensor event"""
-        # Simple heuristic: presence sensors indicate occupancy
-        if event.get('sensor_type') == 'presence' or 'presence' in event.get('entity_id', ''):
-            return event.get('state') in ['on', 'detected', True, 1, '1']
-        return None
-    
-    async def _extract_features_from_event(self, event):
-        """Extract features from a single event"""
-        try:
-            # Use the dynamic feature discovery to extract features
-            features = self.components['predictor'].dynamic_feature_discovery.discover_features([event])
-            
-            # Convert to numeric features
-            numeric_features = self.components['predictor']._convert_features_to_numeric(features)
-            return numeric_features
-        except Exception as e:
-            logger.debug(f"Feature extraction failed for event: {e}")
-            return None
     
     async def _initialize_person_learning(self):
         """Initialize person-specific learning"""
