@@ -96,16 +96,28 @@ class AdaptiveOccupancyPredictor:
         try:
             logger.info(f"Bootstrap training model for {room_id} with all historical data")
             
-            # Get ALL historical data (not just recent)
-            from datetime import datetime, timedelta
-            end_time = datetime.now()
-            start_time = datetime(2020, 1, 1)  # Get ALL data from beginning of time
+            # Get ALL historical data with timezone-aware dates and better error handling
+            import asyncio
+            from datetime import datetime, timezone
+            end_time = datetime.now(timezone.utc)
+            start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)  # Get ALL data from beginning of time
             
-            historical_data = await self.timeseries_db.get_historical_events(
-                start_time=start_time,
-                end_time=end_time,
-                rooms=[room_id]
-            )
+            # Add retry logic for database connection issues
+            historical_data = None
+            for attempt in range(3):
+                try:
+                    historical_data = await self.timeseries_db.get_historical_events(
+                        start_time=start_time,
+                        end_time=end_time,
+                        rooms=[room_id]
+                    )
+                    break
+                except Exception as db_error:
+                    logger.warning(f"Database connection attempt {attempt + 1} failed for {room_id}: {db_error}")
+                    if attempt < 2:
+                        await asyncio.sleep(2)  # Wait 2 seconds before retry
+                    else:
+                        raise
             
             if len(historical_data) > 100:
                 logger.info(f"Bootstrap training {room_id} with {len(historical_data):,} historical events")
