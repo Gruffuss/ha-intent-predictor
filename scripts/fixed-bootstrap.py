@@ -259,14 +259,8 @@ class FixedSystemBootstrap:
         db_config = self.config.get('database.timescale')
         db_connection_string = f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
         
-        # Create TimescaleDB manager with enhanced connection settings
-        self.components['timeseries_db'] = TimescaleDBManager(
-            db_connection_string,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
-            pool_recycle=3600  # Recycle connections every hour to prevent drops
-        )
+        # Create TimescaleDB manager  
+        self.components['timeseries_db'] = TimescaleDBManager(db_connection_string)
         
         # Use retry logic for database connection
         if not await self._retry_database_connection():
