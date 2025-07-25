@@ -75,112 +75,29 @@ class FixedSystemBootstrap:
                     await asyncio.sleep(wait_time)
         return False
     
-    async def _load_historical_data_chunked(self, room_id: str, chunk_size=50000):
-        """Load historical data in chunks to prevent connection drops"""
-        print(f"    - Loading historical data for {room_id} in chunks of {chunk_size:,}...")
+    async def _load_historical_data_chunked(self, room_id: str):
+        """Load historical data for a specific room"""
+        print(f"    - Loading historical data for {room_id}...")
         
         from datetime import timezone
-        total_events = []
-        offset = 0
         
-        # Use a wide date range to get all historical data
-        start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
-        end_time = datetime.now(timezone.utc)
-        
-        while True:
-            try:
-                chunk = await self.components['timeseries_db'].get_historical_events(
-                    start_time=start_time,
-                    end_time=end_time,
-                    rooms=[room_id],
-                    limit=chunk_size,
-                    offset=offset
-                )
-                
-                if not chunk:
-                    break
-                    
-                total_events.extend(chunk)
-                offset += chunk_size
-                print(f"      - Loaded {len(total_events):,} events for {room_id}...")
-                
-                # Small delay to prevent overwhelming the connection
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                print(f"      - Error loading chunk at offset {offset}: {e}")
-                # Try to continue with smaller chunks
-                chunk_size = chunk_size // 2
-                if chunk_size < 1000:
-                    print(f"      - Chunk size too small, stopping at {len(total_events):,} events")
-                    break
-                print(f"      - Reducing chunk size to {chunk_size:,} and retrying...")
-        
-        print(f"    ✓ Loaded {len(total_events):,} total events for {room_id}")
-        return total_events
-        
-        # Sensor groups from CLAUDE.md specification
-        self.sensor_groups = {
-            'presence_zones': [
-                'binary_sensor.presence_livingroom_full',
-                'binary_sensor.presence_livingroom_couch',
-                'binary_sensor.kitchen_pressence_full_kitchen',
-                'binary_sensor.kitchen_pressence_stove',
-                'binary_sensor.kitchen_pressence_sink',
-                'binary_sensor.kitchen_pressence_dining_table',
-                'binary_sensor.bedroom_presence_sensor_full_bedroom',
-                'binary_sensor.bedroom_presence_sensor_anca_bed_side',
-                'binary_sensor.bedroom_vladimir_bed_side',
-                'binary_sensor.bedroom_floor',
-                'binary_sensor.bedroom_entrance',
-                'binary_sensor.office_presence_full_office',
-                'binary_sensor.office_presence_anca_desk',
-                'binary_sensor.office_presence_vladimir_desk',
-                'binary_sensor.office_entrance',
-                'binary_sensor.bathroom_entrance',
-                'binary_sensor.presence_small_bathroom_entrance',
-                'binary_sensor.guest_bedroom_entrance',
-                'binary_sensor.presence_ground_floor_hallway',
-                'binary_sensor.upper_hallway',
-                'binary_sensor.upper_hallway_upstairs',
-                'binary_sensor.upper_hallway_downstairs',
-                'binary_sensor.presence_stairs_up_ground_floor'
-            ],
-            'doors': [
-                'binary_sensor.bathroom_door_sensor_contact',
-                'binary_sensor.bedroom_door_sensor_contact',
-                'binary_sensor.office_door_sensor_contact',
-                'binary_sensor.guest_bedroom_door_sensor_contact',
-                'binary_sensor.small_bathroom_door_sensor_contact'
-            ],
-            'climate': [
-                'sensor.livingroom_env_sensor_temperature',
-                'sensor.livingroom_env_sensor_humidity',
-                'sensor.bedroom_env_sensor_temperature',
-                'sensor.bedroom_env_sensor_humidity',
-                'sensor.office_env_sensor_temperature',
-                'sensor.office_env_sensor_humidity',
-                'sensor.bathroom_env_sensor_temperature',
-                'sensor.bathroom_env_sensor_humidity',
-                'sensor.guest_bedroom_env_sensor_temperature',
-                'sensor.guest_bedroom_env_sensor_humidity',
-                'sensor.upper_hallway_env_sensor_temperature',
-                'sensor.upper_hallway_env_sensor_humidity',
-                'sensor.attic_env_sensor_temperature',
-                'sensor.attic_env_sensor_humidity',
-                'sensor.big_bath_env_sensor_temperature',
-                'sensor.big_bath_env_sensor_humidity'
-            ],
-            'light_levels': [
-                'sensor.bedroom_presence_light_level',
-                'sensor.kitchen_pressence_light_level',
-                'sensor.livingroom_pressence_light_level',
-                'sensor.office_presence_light_level',
-                'sensor.upper_hallway_pressence_light_level'
-            ]
-        }
-        
-        logger.info("Fixed system bootstrap initialized")
+        try:
+            # Use a wide date range to get all historical data
+            start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            end_time = datetime.now(timezone.utc)
+            
+            events = await self.components['timeseries_db'].get_historical_events(
+                start_time=start_time,
+                end_time=end_time,
+                rooms=[room_id]
+            )
+            
+            print(f"    ✓ Loaded {len(events):,} total events for {room_id}")
+            return events
+            
+        except Exception as e:
+            print(f"    ❌ Error loading historical data for {room_id}: {e}")
+            return []
     
     async def bootstrap_system(self):
         """
