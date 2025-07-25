@@ -671,7 +671,7 @@ class AdaptiveOccupancyPredictor:
             
             # Reset performance tracking
             if hasattr(self, 'performance_monitor'):
-                await self.performance_monitor.reset_all_metrics()
+                self.performance_monitor.reset_metrics()
                 
             logger.info("System-wide adaptation completed")
             

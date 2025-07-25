@@ -321,10 +321,6 @@ class PerformanceMonitor:
             
             logger.info("Reset all performance metrics")
     
-    def reset_all_metrics(self):
-        """Alias for reset_metrics() for backward compatibility"""
-        self.reset_metrics()
-    
     async def get_room_performance(self, room_id: str) -> Dict[str, Any]:
         """
         Get room performance data for drift detection compatibility
