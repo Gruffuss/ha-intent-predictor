@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import sys
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List
@@ -36,6 +37,87 @@ class FixedSystemBootstrap:
     def __init__(self, config_path: str = "config/system.yaml"):
         self.config = ConfigLoader(config_path)
         self.components = {}
+    
+    async def _wait_for_dependencies(self):
+        """Wait for Docker services to be healthy before starting"""
+        print("  - Waiting for Docker services to be healthy...")
+        services = ['timescaledb', 'redis', 'kafka', 'zookeeper']
+        
+        for service in services:
+            while True:
+                try:
+                    result = subprocess.run(
+                        ['docker', 'compose', 'ps', '--filter', f'service={service}'], 
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if 'healthy' in result.stdout or service in ['kafka-ui']:  # kafka-ui doesn't have health check
+                        print(f"    ✓ {service} is healthy")
+                        break
+                    else:
+                        print(f"    - Waiting for {service} to be healthy...")
+                        await asyncio.sleep(5)
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+                    print(f"    - Error checking {service} status: {e}")
+                    await asyncio.sleep(5)
+    
+    async def _retry_database_connection(self, max_retries=5):
+        """Add connection retry logic with exponential backoff"""
+        for attempt in range(max_retries):
+            try:
+                await self.components['timeseries_db'].initialize()
+                print(f"    ✓ Database connection successful on attempt {attempt + 1}")
+                return True
+            except Exception as e:
+                wait_time = 2 ** attempt
+                print(f"    - Database connection failed (attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    print(f"    - Retrying in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+        return False
+    
+    async def _load_historical_data_chunked(self, room_id: str, chunk_size=50000):
+        """Load historical data in chunks to prevent connection drops"""
+        print(f"    - Loading historical data for {room_id} in chunks of {chunk_size:,}...")
+        
+        from datetime import timezone
+        total_events = []
+        offset = 0
+        
+        # Use a wide date range to get all historical data
+        start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        end_time = datetime.now(timezone.utc)
+        
+        while True:
+            try:
+                chunk = await self.components['timeseries_db'].get_historical_events(
+                    start_time=start_time,
+                    end_time=end_time,
+                    rooms=[room_id],
+                    limit=chunk_size,
+                    offset=offset
+                )
+                
+                if not chunk:
+                    break
+                    
+                total_events.extend(chunk)
+                offset += chunk_size
+                print(f"      - Loaded {len(total_events):,} events for {room_id}...")
+                
+                # Small delay to prevent overwhelming the connection
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                print(f"      - Error loading chunk at offset {offset}: {e}")
+                # Try to continue with smaller chunks
+                chunk_size = chunk_size // 2
+                if chunk_size < 1000:
+                    print(f"      - Chunk size too small, stopping at {len(total_events):,} events")
+                    break
+                print(f"      - Reducing chunk size to {chunk_size:,} and retrying...")
+        
+        print(f"    ✓ Loaded {len(total_events):,} total events for {room_id}")
+        return total_events
         
         # Sensor groups from CLAUDE.md specification
         self.sensor_groups = {
@@ -138,18 +220,23 @@ class FixedSystemBootstrap:
             await self._configure_combined_spaces()
             print("   ✓ Combined spaces configured")
             
-            # Step 6: Initialize person-specific learning
-            print("\n6. 👥 Initializing person-specific learning...")
+            # Step 6: Train models with historical data (CRITICAL for temporal awareness)
+            print("\n6. 🤖 Training models with historical data...")
+            await self._train_models_with_historical_data()
+            print("   ✓ Models trained with historical data")
+            
+            # Step 7: Initialize person-specific learning
+            print("\n7. 👥 Initializing person-specific learning...")
             await self._initialize_person_learning()
             print("   ✓ Person-specific learning initialized")
             
-            # Step 7: Set up Home Assistant integration
-            print("\n7. 🔌 Setting up Home Assistant integration...")
+            # Step 8: Set up Home Assistant integration
+            print("\n8. 🔌 Setting up Home Assistant integration...")
             await self._setup_ha_integration()
             print("   ✓ Home Assistant integration configured")
             
-            # Step 8: Validate system
-            print("\n8. ✅ Validating system readiness...")
+            # Step 9: Validate system
+            print("\n9. ✅ Validating system readiness...")
             await self._validate_system()
             
             print("\n" + "="*60)
@@ -162,23 +249,53 @@ class FixedSystemBootstrap:
             raise
     
     async def _initialize_storage(self):
-        """Initialize storage connections"""
+        """Initialize storage connections with dependency waiting and retry logic"""
         
-        # Initialize TimescaleDB
+        # Wait for all Docker services to be healthy first
+        await self._wait_for_dependencies()
+        
+        # Initialize TimescaleDB with connection pooling and retry logic
+        print("  - Initializing TimescaleDB with connection pooling...")
         db_config = self.config.get('database.timescale')
         db_connection_string = f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-        self.components['timeseries_db'] = TimescaleDBManager(db_connection_string)
-        await self.components['timeseries_db'].initialize()
         
-        # Initialize Redis
+        # Create TimescaleDB manager with enhanced connection settings
+        self.components['timeseries_db'] = TimescaleDBManager(
+            db_connection_string,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=3600  # Recycle connections every hour to prevent drops
+        )
+        
+        # Use retry logic for database connection
+        if not await self._retry_database_connection():
+            raise RuntimeError("Failed to establish database connection after all retries")
+        
+        # Initialize Redis with retry logic
+        print("  - Initializing Redis...")
         redis_config = self.config.get('redis')
         redis_url = f"redis://{redis_config['host']}:{redis_config['port']}/{redis_config['db']}"
         self.components['feature_store'] = RedisFeatureStore(redis_url)
-        await self.components['feature_store'].initialize()
+        
+        # Retry Redis connection
+        for attempt in range(3):
+            try:
+                await self.components['feature_store'].initialize()
+                print("    ✓ Redis connection successful")
+                break
+            except Exception as e:
+                if attempt < 2:
+                    print(f"    - Redis connection failed (attempt {attempt+1}), retrying...")
+                    await asyncio.sleep(2)
+                else:
+                    raise RuntimeError(f"Failed to connect to Redis: {e}")
         
         # Initialize model storage
+        print("  - Initializing model storage...")
         self.components['model_store'] = ModelStore(self.config.get('model_storage'))
         await self.components['model_store'].initialize()
+        print("    ✓ Model storage initialized")
     
     async def _create_correct_database_schema(self):
         """Create the correct database schema that matches the implementation"""
@@ -370,6 +487,74 @@ class FixedSystemBootstrap:
                 SET room = 'living_kitchen' 
                 WHERE room IN ('livingroom', 'kitchen')
             """))
+    
+    async def _train_models_with_historical_data(self):
+        """Train models with historical data using chunked loading"""
+        print("  - Training models with historical data...")
+        
+        rooms = ['living_kitchen', 'bedroom', 'office', 'bathroom', 'small_bathroom']
+        
+        for room in rooms:
+            print(f"  - Training models for {room}...")
+            
+            # Load historical data in chunks to prevent connection drops
+            historical_events = await self._load_historical_data_chunked(room)
+            
+            if len(historical_events) < 100:
+                print(f"    - Insufficient data for {room}: {len(historical_events)} events")
+                continue
+            
+            print(f"    - Training {room} models with {len(historical_events):,} events...")
+            
+            # Train the room's models
+            try:
+                room_predictor = await self.components['predictor'].get_room_predictor(room)
+                
+                trained_count = 0
+                for i, event in enumerate(historical_events):
+                    # Determine occupancy from event
+                    occupancy = self._determine_occupancy_from_event(event)
+                    if occupancy is not None:
+                        # Extract features
+                        features = await self._extract_features_from_event(event)
+                        if features:
+                            # Train the model
+                            room_predictor.learn_one(features, occupancy)
+                            trained_count += 1
+                    
+                    # Progress update every 10k events
+                    if i % 10000 == 0 and i > 0:
+                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained)")
+                
+                print(f"    ✓ {room} training completed: {trained_count:,} events processed")
+                
+                # Save the trained model
+                await self.components['model_store'].save_room_model(room, room_predictor.save_model())
+                print(f"    ✓ {room} model saved to storage")
+                
+            except Exception as e:
+                print(f"    ❌ Training failed for {room}: {e}")
+                logger.error(f"Training failed for {room}: {e}")
+    
+    def _determine_occupancy_from_event(self, event):
+        """Determine occupancy from sensor event"""
+        # Simple heuristic: presence sensors indicate occupancy
+        if event.get('sensor_type') == 'presence' or 'presence' in event.get('entity_id', ''):
+            return event.get('state') in ['on', 'detected', True, 1, '1']
+        return None
+    
+    async def _extract_features_from_event(self, event):
+        """Extract features from a single event"""
+        try:
+            # Use the dynamic feature discovery to extract features
+            features = self.components['predictor'].dynamic_feature_discovery.discover_features([event])
+            
+            # Convert to numeric features
+            numeric_features = self.components['predictor']._convert_features_to_numeric(features)
+            return numeric_features
+        except Exception as e:
+            logger.debug(f"Feature extraction failed for event: {e}")
+            return None
     
     async def _initialize_person_learning(self):
         """Initialize person-specific learning"""
