@@ -81,8 +81,8 @@ class AdaptiveOccupancyPredictor:
                 # Long-term models for pattern discovery
                 self.long_term_models[room] = PatternDiscoveryModel(room)
                 
-                # Bootstrap training with ALL historical data
-                await self.bootstrap_model_with_historical_data(room)
+                # Load pre-trained models from model store (trained by fixed-bootstrap.py)
+                await self.load_pretrained_models(room)
             
             self.initialized = True
             logger.info("✅ Adaptive occupancy predictor initialized successfully")
@@ -91,54 +91,28 @@ class AdaptiveOccupancyPredictor:
             logger.error(f"Failed to initialize adaptive predictor: {e}")
             raise
     
-    async def bootstrap_model_with_historical_data(self, room_id: str):
-        """Bootstrap model with ALL historical data for initial training"""
+    async def load_pretrained_models(self, room_id: str):
+        """Load pre-trained models from model store (trained by fixed-bootstrap.py)"""
         try:
-            logger.info(f"Bootstrap training model for {room_id} with all historical data")
+            logger.info(f"Loading pre-trained models for {room_id}")
             
-            # Get ALL historical data with timezone-aware dates and better error handling
-            import asyncio
-            from datetime import datetime, timezone
-            end_time = datetime.now(timezone.utc)
-            start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)  # Get ALL data from beginning of time
+            # Try to load existing models from model store
+            try:
+                model_state = await self.model_store.load_room_model(room_id)
+                if model_state and 'short_term_model' in model_state:
+                    # Load the saved model state
+                    self.short_term_models[room_id].load_model(model_state['short_term_model'])
+                    logger.info(f"✅ Loaded pre-trained model for {room_id}")
+                    return
+            except Exception as e:
+                logger.warning(f"Could not load pre-trained model for {room_id}: {e}")
             
-            # Add retry logic for database connection issues
-            historical_data = None
-            for attempt in range(3):
-                try:
-                    historical_data = await self.timeseries_db.get_historical_events(
-                        start_time=start_time,
-                        end_time=end_time,
-                        rooms=[room_id]
-                    )
-                    break
-                except Exception as db_error:
-                    logger.warning(f"Database connection attempt {attempt + 1} failed for {room_id}: {db_error}")
-                    if attempt < 2:
-                        await asyncio.sleep(2)  # Wait 2 seconds before retry
-                    else:
-                        raise
-            
-            if len(historical_data) > 100:
-                logger.info(f"Bootstrap training {room_id} with {len(historical_data):,} historical events")
-                
-                # Train with ALL historical data
-                trained_count = 0
-                for event in historical_data:
-                    occupancy = self.determine_occupancy(event)
-                    if occupancy is not None:
-                        features = self.dynamic_feature_discovery.discover_features([event])
-                        numeric_features = self._convert_features_to_numeric(features)
-                        if numeric_features:
-                            self.short_term_models[room_id].learn_one(numeric_features, occupancy)
-                            trained_count += 1
-                
-                logger.info(f"✅ Bootstrap training completed for {room_id}: {trained_count:,} events processed")
-            else:
-                logger.warning(f"Insufficient historical data for {room_id}: {len(historical_data)} events")
+            # If no pre-trained model exists, initialize with empty model
+            # (fixed-bootstrap.py will train it with historical data)
+            logger.info(f"No pre-trained model found for {room_id}, using fresh model")
                 
         except Exception as e:
-            logger.error(f"Error bootstrapping model for {room_id}: {e}")
+            logger.error(f"Error loading pre-trained model for {room_id}: {e}")
     
     async def learn_from_observation(self, 
                                    room_id: str, 
