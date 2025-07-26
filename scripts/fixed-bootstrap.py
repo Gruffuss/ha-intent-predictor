@@ -139,24 +139,55 @@ class FixedSystemBootstrap:
         return False
     
     async def _load_historical_data_chunked(self, room_id: str):
-        """Load historical data for a specific room"""
+        """Load historical data for a specific room in smaller chunks"""
         print(f"    - Loading historical data for {room_id}...")
         
         from datetime import timezone
         
         try:
-            # Use a wide date range to get all historical data
-            start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
-            end_time = datetime.now(timezone.utc)
+            # Load data directly from database in smaller chunks to avoid memory issues
+            all_events = []
+            chunk_size = 10000  # Load 10k events at a time
             
-            events = await self.components['timeseries_db'].get_historical_events(
-                start_time=start_time,
-                end_time=end_time,
-                rooms=[room_id]
-            )
+            async with self.components['timeseries_db'].engine.begin() as conn:
+                from sqlalchemy import text
+                
+                # Get total count first
+                count_result = await conn.execute(
+                    text("SELECT COUNT(*) FROM sensor_events WHERE room = :room"),
+                    {'room': room_id}
+                )
+                total_events = count_result.fetchone()[0]
+                print(f"      - Found {total_events:,} total events for {room_id}")
+                
+                if total_events == 0:
+                    return []
+                
+                # Load in chunks
+                for offset in range(0, total_events, chunk_size):
+                    print(f"      - Loading chunk {offset:,} to {min(offset + chunk_size, total_events):,}")
+                    
+                    result = await conn.execute(
+                        text("""
+                            SELECT timestamp, entity_id, state, numeric_value, attributes, 
+                                   room, sensor_type, zone_type, zone_info, person, 
+                                   derived_features, processed_at
+                            FROM sensor_events 
+                            WHERE room = :room 
+                            ORDER BY timestamp 
+                            LIMIT :limit OFFSET :offset
+                        """),
+                        {'room': room_id, 'limit': chunk_size, 'offset': offset}
+                    )
+                    
+                    chunk_events = [dict(row._mapping) for row in result.fetchall()]
+                    all_events.extend(chunk_events)
+                    
+                    if len(chunk_events) < chunk_size:
+                        break  # Last chunk
             
-            print(f"    ✓ Loaded {len(events):,} total events for {room_id}")
-            return events
+            print(f"    ✓ Loaded {len(all_events):,} total events for {room_id}")
+            return all_events
             
         except Exception as e:
             print(f"    ❌ Error loading historical data for {room_id}: {e}")
@@ -492,11 +523,13 @@ class FixedSystemBootstrap:
                 
                 # Now train with actual historical data
                 trained_count = 0
+                start_time = datetime.now()
+                
                 for i, event in enumerate(historical_events):
                     # Determine occupancy from event
                     occupancy = self._determine_occupancy_from_event(event)
                     if occupancy is not None:
-                        # Extract features from event
+                        # Extract features from event using the ORIGINAL complex method
                         features = await self._extract_features_from_event(event)
                         if features:
                             # Train the model using learn_one
@@ -506,9 +539,12 @@ class FixedSystemBootstrap:
                     
                     # Progress update every 10k events
                     if i % 10000 == 0 and i > 0:
-                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained)")
+                        elapsed = (datetime.now() - start_time).total_seconds()
+                        rate = i / elapsed if elapsed > 0 else 0
+                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained) - {rate:.0f} events/sec")
                 
-                print(f"    ✓ {room} training completed: {trained_count:,} events processed")
+                elapsed = (datetime.now() - start_time).total_seconds()
+                print(f"    ✓ {room} training completed: {trained_count:,} events processed in {elapsed:.1f}s")
                 
                 # Save the trained model to model store
                 if room in self.components['predictor'].short_term_models:
@@ -552,6 +588,7 @@ class FixedSystemBootstrap:
         except Exception as e:
             logger.debug(f"Feature extraction failed for event: {e}")
             return None
+    
     
     async def _initialize_person_learning(self):
         """Initialize person-specific learning"""
