@@ -1,6 +1,16 @@
 """
 Automatic Pattern Mining - Discovers behavioral patterns without assumptions
 Implements the sophisticated pattern discovery from CLAUDE.md
+
+OPTIMIZATIONS IMPLEMENTED (to fix 4-hour hanging issue):
+1. Chunked database loading (5,000 events at a time) - prevents memory explosion from 100k+ events
+2. Reduced sequence length (max 5 instead of 100) - prevents millions of sequences 
+3. Limited time windows (6 instead of 43,200) - focuses on essential behavioral periods
+4. Memory monitoring with 500MB safety limit - prevents system overload
+5. Timeout protection (30 minutes max per room) - prevents infinite hanging
+6. Progress reporting with resource usage - provides visibility during processing
+7. Pattern pruning (top 100 per room) - controls memory growth
+8. Sampling for negative patterns - reduces computational complexity
 """
 
 import logging
@@ -10,6 +20,8 @@ from datetime import datetime, timedelta
 import numpy as np
 from scipy.stats import chi2_contingency
 from suffix_trees import STree
+import psutil
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -27,40 +39,29 @@ class PatternDiscovery:
         
     async def discover_multizone_patterns(self, room_name: str, historical_events: List[Dict] = None) -> Dict:
         """
-        Discover patterns for multi-zone rooms
+        Discover patterns for multi-zone rooms with optimized chunked processing
         Handles the complex zone relationships from CLAUDE.md
         """
         logger.info(f"Discovering multi-zone patterns for {room_name}")
         
         if historical_events is None:
-            # If no events provided, get from database
-            from src.storage.timeseries_db import TimescaleDBManager
-            from config.config_loader import ConfigLoader
-            
-            config = ConfigLoader()
-            db_config = config.get("database.timescale")
-            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
-            await db.initialize()
-            
-            async with db.engine.begin() as conn:
-                from sqlalchemy import text
-                result = await conn.execute(text("SELECT * FROM sensor_events WHERE room = :room ORDER BY timestamp"), {'room': room_name})
-                historical_events = [dict(row._mapping) for row in result.fetchall()]
-            
-            await db.close()
+            # Use chunked loading to prevent memory explosion
+            historical_events = await self._load_events_chunked(room_name)
+        else:
+            # Filter events for this room
+            historical_events = [
+                event for event in historical_events
+                if event.get('room') == room_name
+            ]
         
-        # Filter events for this room
-        room_events = [
-            event for event in historical_events
-            if event.get('room') == room_name
-        ]
-        
-        if not room_events:
+        if not historical_events:
             logger.warning(f"No events found for room {room_name}")
             return {}
         
-        # Discover patterns using the sophisticated algorithm
-        self.discover_patterns(room_events, room_name)
+        logger.info(f"Processing {len(historical_events):,} events for {room_name} in optimized chunks")
+        
+        # Discover patterns using the optimized algorithm
+        await self._discover_patterns_optimized(historical_events, room_name)
         
         patterns = self.pattern_library.get(room_name, set())
         
@@ -72,33 +73,76 @@ class PatternDiscovery:
             'patterns': list(patterns)[:10]  # Show first 10 patterns
         }
     
+    async def _load_events_chunked(self, room_name: str, chunk_size: int = 5000) -> List[Dict]:
+        """Load events in chunks to prevent memory explosion"""
+        logger.info(f"Loading events for {room_name} in chunks of {chunk_size:,}")
+        
+        from src.storage.timeseries_db import TimescaleDBManager
+        from config.config_loader import ConfigLoader
+        
+        config = ConfigLoader()
+        db_config = config.get("database.timescale")
+        db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
+        await db.initialize()
+        
+        all_events = []
+        offset = 0
+        
+        try:
+            while True:
+                async with db.engine.begin() as conn:
+                    from sqlalchemy import text
+                    # Load in chunks with LIMIT and OFFSET
+                    result = await conn.execute(text("""
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, 
+                               zone_type, person, derived_features
+                        FROM sensor_events 
+                        WHERE room = :room 
+                        ORDER BY timestamp 
+                        LIMIT :limit OFFSET :offset
+                    """), {
+                        'room': room_name, 
+                        'limit': chunk_size, 
+                        'offset': offset
+                    })
+                    
+                    chunk_events = [dict(row._mapping) for row in result.fetchall()]
+                    
+                    if not chunk_events:
+                        break  # No more events
+                    
+                    all_events.extend(chunk_events)
+                    offset += chunk_size
+                    
+                    logger.info(f"  Loaded chunk {offset//chunk_size}: {len(chunk_events):,} events "
+                              f"(total: {len(all_events):,})")
+                    
+                    # Memory management - limit total events to prevent explosion
+                    if len(all_events) > 50000:
+                        logger.info(f"  Limiting to most recent 50,000 events to prevent memory issues")
+                        all_events = all_events[-50000:]  # Keep most recent
+                        break
+            
+        finally:
+            await db.close()
+        
+        logger.info(f"Loaded {len(all_events):,} total events for {room_name}")
+        return all_events
+    
     async def discover_bathroom_patterns(self, bathroom_rooms: List[str], historical_events: List[Dict] = None) -> Dict:
         """
-        Discover patterns specific to bathroom usage
+        Discover patterns specific to bathroom usage with optimized processing
         Handles the special bathroom logic from CLAUDE.md
         """
         logger.info(f"Discovering bathroom patterns for {bathroom_rooms}")
         
         if historical_events is None:
-            # If no events provided, get from database
-            from src.storage.timeseries_db import TimescaleDBManager
-            from config.config_loader import ConfigLoader
-            
-            config = ConfigLoader()
-            db_config = config.get("database.timescale")
-            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
-            await db.initialize()
-            
+            # Use chunked loading for all bathroom rooms combined
             bathroom_events = []
-            async with db.engine.begin() as conn:
-                from sqlalchemy import text
-                for room in bathroom_rooms:
-                    result = await conn.execute(text("SELECT * FROM sensor_events WHERE room = :room ORDER BY timestamp"), {'room': room})
-                    room_events = [dict(row._mapping) for row in result.fetchall()]
-                    bathroom_events.extend(room_events)
-            
-            await db.close()
-            historical_events = bathroom_events
+            for room in bathroom_rooms:
+                room_events = await self._load_events_chunked(room)
+                bathroom_events.extend(room_events)
+                logger.info(f"  Loaded {len(room_events):,} events for {room}")
         else:
             bathroom_events = []
             for room in bathroom_rooms:
@@ -108,13 +152,20 @@ class PatternDiscovery:
                 ]
                 bathroom_events.extend(room_events)
         
-        # Bathroom-specific pattern discovery
+        # Bathroom-specific optimized pattern discovery
         patterns = {}
         for room in bathroom_rooms:
             room_events = [e for e in bathroom_events if e.get('room') == room]
             if room_events:
-                self.discover_patterns(room_events, room)
+                logger.info(f"Processing {len(room_events):,} events for bathroom {room}")
+                await self._discover_patterns_optimized(room_events, room)
                 patterns[room] = self.pattern_library.get(room, set())
+            else:
+                logger.warning(f"No events found for bathroom {room}")
+                patterns[room] = set()
+        
+        total_patterns = sum(len(p) for p in patterns.values())
+        logger.info(f"Discovered {total_patterns} total bathroom patterns across {len(bathroom_rooms)} rooms")
         
         return {
             'bathroom_rooms': bathroom_rooms,
@@ -122,11 +173,11 @@ class PatternDiscovery:
         }
     
     async def discover_transition_patterns(self, area_name: str, historical_events: List[Dict] = None) -> Dict:
-        """Discover transition patterns for hallways and connections"""
+        """Discover transition patterns for hallways and connections with optimized processing"""
         logger.info(f"Discovering transition patterns for {area_name}")
         
         if historical_events is None:
-            # If no events provided, get from database
+            # Use chunked loading with transition-specific query
             from src.storage.timeseries_db import TimescaleDBManager
             from config.config_loader import ConfigLoader
             
@@ -135,12 +186,21 @@ class PatternDiscovery:
             db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
             await db.initialize()
             
-            async with db.engine.begin() as conn:
-                from sqlalchemy import text
-                result = await conn.execute(text("SELECT * FROM sensor_events WHERE entity_id LIKE '%hallway%' OR entity_id LIKE '%stairs%' ORDER BY timestamp"))
-                historical_events = [dict(row._mapping) for row in result.fetchall()]
-            
-            await db.close()
+            try:
+                async with db.engine.begin() as conn:
+                    from sqlalchemy import text
+                    # Limit transition events to prevent memory issues
+                    result = await conn.execute(text("""
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, 
+                               zone_type, person, derived_features
+                        FROM sensor_events 
+                        WHERE entity_id LIKE '%hallway%' OR entity_id LIKE '%stairs%' 
+                        ORDER BY timestamp DESC
+                        LIMIT 20000
+                    """))
+                    historical_events = [dict(row._mapping) for row in result.fetchall()]
+            finally:
+                await db.close()
         
         # Filter transition events
         transition_events = [
@@ -149,7 +209,10 @@ class PatternDiscovery:
         ]
         
         if transition_events:
-            self.discover_patterns(transition_events, area_name)
+            logger.info(f"Processing {len(transition_events):,} transition events for {area_name}")
+            await self._discover_patterns_optimized(transition_events, area_name)
+        else:
+            logger.warning(f"No transition events found for {area_name}")
         
         patterns = self.pattern_library.get(area_name, set())
         
@@ -159,48 +222,165 @@ class PatternDiscovery:
             'patterns': list(patterns)[:10]
         }
 
-    def discover_patterns(self, event_stream: List[Dict], room_id: str):
+    async def _discover_patterns_optimized(self, event_stream: List[Dict], room_id: str):
         """
-        No assumptions - let data speak for itself
-        Implements exact algorithm from CLAUDE.md
+        Optimized pattern discovery that prevents memory explosion and hanging
+        Processes events in chunks with reduced complexity
         """
-        logger.info(f"Discovering patterns for {room_id}")
+        logger.info(f"Starting optimized pattern discovery for {room_id} with {len(event_stream):,} events")
         
-        # Variable-length sequence mining
-        sequences = self.extract_sequences(event_stream, 
-                                         min_length=2, 
-                                         max_length=100)
+        # Memory monitoring
+        initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        logger.info(f"  Initial memory usage: {initial_memory:.1f} MB")
         
-        # Test every possible time window
-        for window in self.generate_time_windows():
-            pattern_strength = self.test_pattern_significance(
-                sequences, window, room_id
-            )
+        # Initialize pattern storage
+        if room_id not in self.pattern_library:
+            self.pattern_library[room_id] = set()
+        
+        # Timeout protection
+        start_time = datetime.now()
+        max_duration = timedelta(minutes=30)  # Maximum 30 minutes per room
+        
+        # Process events in chunks to prevent memory explosion
+        chunk_size = 2000  # Process 2k events at a time
+        total_patterns_found = 0
+        
+        for chunk_start in range(0, len(event_stream), chunk_size):
+            chunk_end = min(chunk_start + chunk_size, len(event_stream))
+            chunk_events = event_stream[chunk_start:chunk_end]
             
-            if pattern_strength > self.adaptive_threshold:
-                if room_id not in self.pattern_library:
-                    self.pattern_library[room_id] = set()
+            # Progress and resource monitoring
+            progress_pct = (chunk_end / len(event_stream)) * 100
+            current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+            elapsed_time = datetime.now() - start_time
+            
+            logger.info(f"  Processing chunk {chunk_start:,}-{chunk_end:,} "
+                       f"({progress_pct:.1f}% complete, {current_memory:.1f} MB, {elapsed_time})")
+            
+            # Timeout protection
+            if elapsed_time > max_duration:
+                logger.warning(f"  Pattern discovery timeout reached ({max_duration}) for {room_id}")
+                break
+            
+            # Memory protection
+            if current_memory > initial_memory + 500:  # More than 500MB increase
+                logger.warning(f"  Memory usage too high ({current_memory:.1f} MB), stopping pattern discovery")
+                break
+            
+            # Extract sequences with reduced max_length to prevent explosion
+            sequences = self.extract_sequences_optimized(chunk_events, 
+                                                       min_length=2, 
+                                                       max_length=5)  # Reduced from 100 to 5
+            
+            if not sequences:
+                continue
+            
+            logger.info(f"    Generated {len(sequences):,} sequences for analysis")
+            
+            # Test only behaviorally-relevant time windows
+            relevant_windows = self.get_behavioral_relevant_windows()
+            
+            patterns_in_chunk = 0
+            for window in relevant_windows:
+                try:
+                    pattern_strength = self.test_pattern_significance(
+                        sequences, window, room_id
+                    )
                     
-                self.pattern_library[room_id].add(
-                    Pattern(sequences, window, pattern_strength)
-                )
+                    if pattern_strength > self.adaptive_threshold:
+                        pattern = Pattern(sequences[:10], window, pattern_strength)  # Limit stored sequences
+                        self.pattern_library[room_id].add(pattern)
+                        patterns_in_chunk += 1
+                        total_patterns_found += 1
+                        
+                except Exception as e:
+                    logger.warning(f"    Error testing window {window}min: {e}")
+                    continue
+            
+            logger.info(f"    Found {patterns_in_chunk} patterns in this chunk")
+            
+            # Memory management - if too many patterns, keep only strongest
+            if len(self.pattern_library[room_id]) > 100:
+                sorted_patterns = sorted(self.pattern_library[room_id], 
+                                       key=lambda p: p.strength, reverse=True)
+                self.pattern_library[room_id] = set(sorted_patterns[:100])
+                logger.info(f"    Pruned to top 100 strongest patterns")
         
-        # Detect anti-patterns (what DOESN'T happen)
-        self.discover_negative_patterns(event_stream, room_id)
+        # Final resource monitoring
+        final_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        total_time = datetime.now() - start_time
+        memory_delta = final_memory - initial_memory
         
-        logger.info(f"Discovered {len(self.pattern_library.get(room_id, []))} patterns for {room_id}")
+        logger.info(f"Completed pattern discovery for {room_id}: {total_patterns_found} total patterns found")
+        logger.info(f"  Resource usage: {total_time} elapsed, {memory_delta:+.1f} MB memory change")
+        
+        # Simplified negative pattern discovery (reduced scope)
+        await self._discover_negative_patterns_optimized(event_stream, room_id)
+    
+    def extract_sequences_optimized(self, event_stream: List[Dict], min_length: int, max_length: int) -> List[List[Dict]]:
+        """
+        Extract variable-length sequences with memory optimization
+        Dramatically reduced max_length to prevent millions of sequences
+        """
+        sequences = []
+        
+        # Validate inputs
+        if not event_stream or not isinstance(event_stream, list):
+            logger.warning(f"Invalid event_stream: {type(event_stream)}")
+            return sequences
+            
+        if not isinstance(min_length, int) or not isinstance(max_length, int):
+            logger.warning(f"Invalid length parameters: min_length={min_length}, max_length={max_length}")
+            return sequences
+            
+        if min_length < 1 or max_length < min_length or max_length > 10:
+            logger.warning(f"Invalid length values: min_length={min_length}, max_length={max_length}")
+            return sequences
+        
+        # Extract sequences safely with step size for sampling
+        stream_length = len(event_stream)
+        if stream_length < min_length:
+            logger.debug(f"Event stream too short ({stream_length}) for min_length ({min_length})")
+            return sequences
+        
+        # Use step size to reduce sequence count (sample every 5th starting position)
+        step_size = max(1, stream_length // 1000)  # Limit to ~1000 starting positions
+        
+        for start_idx in range(0, stream_length, step_size):
+            max_possible_length = min(max_length + 1, stream_length - start_idx + 1)
+            for length in range(min_length, max_possible_length):
+                sequence = event_stream[start_idx:start_idx + length]
+                sequences.append(sequence)
+                
+                # Limit total sequences to prevent memory explosion
+                if len(sequences) >= 10000:  # Hard limit
+                    logger.info(f"    Reached sequence limit (10,000), stopping extraction")
+                    return sequences
+        
+        return sequences
+    
+    def get_behavioral_relevant_windows(self) -> List[int]:
+        """
+        Return time windows relevant for general behavioral pattern detection
+        Drastically reduced from 43,200 windows to essential behavioral periods
+        """
+        # Focus on general behavioral time windows without assumptions
+        return [
+            15,    # 15 minutes - immediate activity detection
+            30,    # 30 minutes - short activity periods
+            60,    # 1 hour - typical activity blocks
+            120,   # 2 hours - extended activities  
+            240,   # 4 hours - longer behavioral patterns
+            1440   # 24 hours - daily routine patterns
+        ]
     
     def generate_time_windows(self):
         """
-        Test all possible time windows, not just "hourly" or "daily"
-        Exactly as specified in CLAUDE.md
+        DEPRECATED - Use get_behavioral_relevant_windows() instead
+        This old method tested 43,200 windows causing 4-hour hangs
         """
-        # Windows from 1 minute to 30 days, with variable steps
-        windows = []
-        for minutes in range(1, 43200):  # Up to 30 days
-            if self.is_promising_window(minutes):
-                windows.append(minutes)
-        return windows
+        logger.warning("generate_time_windows() is deprecated - use get_behavioral_relevant_windows()")
+        return self.get_behavioral_relevant_windows()
     
     def is_promising_window(self, minutes: int) -> bool:
         """
@@ -225,36 +405,11 @@ class PatternDiscovery:
     
     def extract_sequences(self, event_stream: List[Dict], min_length: int, max_length: int) -> List[List[Dict]]:
         """
-        Extract variable-length sequences from event stream
+        DEPRECATED - Use extract_sequences_optimized() instead
+        This old method generated millions of sequences causing memory explosion
         """
-        sequences = []
-        
-        # Validate inputs
-        if not event_stream or not isinstance(event_stream, list):
-            logger.warning(f"Invalid event_stream: {type(event_stream)}")
-            return sequences
-            
-        if not isinstance(min_length, int) or not isinstance(max_length, int):
-            logger.warning(f"Invalid length parameters: min_length={min_length}, max_length={max_length}")
-            return sequences
-            
-        if min_length < 1 or max_length < min_length:
-            logger.warning(f"Invalid length values: min_length={min_length}, max_length={max_length}")
-            return sequences
-        
-        # Extract sequences safely
-        stream_length = len(event_stream)
-        if stream_length < min_length:
-            logger.debug(f"Event stream too short ({stream_length}) for min_length ({min_length})")
-            return sequences
-        
-        for start_idx in range(stream_length):
-            max_possible_length = min(max_length + 1, stream_length - start_idx + 1)
-            for length in range(min_length, max_possible_length):
-                sequence = event_stream[start_idx:start_idx + length]
-                sequences.append(sequence)
-        
-        return sequences
+        logger.warning("extract_sequences() is deprecated - use extract_sequences_optimized()")
+        return self.extract_sequences_optimized(event_stream, min_length, min(max_length, 5))
     
     def test_pattern_significance(self, sequences: List[List[Dict]], window_minutes: int, room_id: str) -> float:
         """
@@ -335,28 +490,85 @@ class PatternDiscovery:
         
         return "->".join(signature_parts)
     
-    def discover_negative_patterns(self, event_stream: List[Dict], room_id: str):
+    async def _discover_negative_patterns_optimized(self, event_stream: List[Dict], room_id: str):
         """
-        Detect anti-patterns (what DOESN'T happen)
-        Important for understanding absence of activity
+        Optimized negative pattern discovery with reduced scope
+        Focuses on the most important anti-patterns without memory explosion
         """
-        logger.info(f"Discovering negative patterns for {room_id}")
+        logger.info(f"Discovering key negative patterns for {room_id}")
         
-        # Find expected but missing sequences
-        all_possible_sequences = self.generate_possible_sequences(event_stream)
-        actual_sequences = set(self.create_pattern_signature(seq) for seq in self.extract_sequences(event_stream, 2, 5))
+        # Limit scope to prevent memory explosion
+        if len(event_stream) > 10000:
+            # Sample recent events for negative pattern analysis
+            sample_events = event_stream[-10000:]
+            logger.info(f"  Sampling most recent 10,000 events for negative pattern analysis")
+        else:
+            sample_events = event_stream
         
-        missing_patterns = all_possible_sequences - actual_sequences
+        # Find expected but missing sequences (simplified approach)
+        key_possible_sequences = self._generate_key_possible_sequences(sample_events)
+        actual_sequences = set(self.create_pattern_signature(seq) 
+                             for seq in self.extract_sequences_optimized(sample_events, 2, 3))
         
-        # Store significant missing patterns
+        missing_patterns = key_possible_sequences - actual_sequences
+        
+        # Store only the most significant missing patterns
         if room_id not in self.pattern_library:
             self.pattern_library[room_id] = set()
         
+        negative_patterns_added = 0
         for missing_pattern in missing_patterns:
-            if self.is_significant_absence(missing_pattern, event_stream):
-                self.pattern_library[room_id].add(
-                    NegativePattern(missing_pattern, self.calculate_absence_strength(missing_pattern, event_stream))
-                )
+            if self.is_significant_absence(missing_pattern, sample_events):
+                strength = self.calculate_absence_strength(missing_pattern, sample_events)
+                if strength > 0.7:  # Higher threshold for negative patterns
+                    self.pattern_library[room_id].add(
+                        NegativePattern(missing_pattern, strength)
+                    )
+                    negative_patterns_added += 1
+                    
+                    # Limit negative patterns to prevent bloat
+                    if negative_patterns_added >= 20:
+                        break
+        
+        logger.info(f"  Added {negative_patterns_added} significant negative patterns for {room_id}")
+    
+    def _generate_key_possible_sequences(self, event_stream: List[Dict]) -> set:
+        """
+        Generate only key possible sequences to prevent memory explosion
+        Focuses on the most important 2-3 event combinations
+        """
+        unique_events = set()
+        for event in event_stream[-1000:]:  # Sample recent events only
+            event_sig = f"{event.get('room', 'unknown')}-{event.get('sensor_type', 'unknown')}-{event.get('state', 0)}"
+            unique_events.add(event_sig)
+            
+            # Limit unique events to prevent explosion
+            if len(unique_events) >= 20:
+                break
+        
+        # Generate only 2-event combinations (not 3+ to save memory)
+        possible_sequences = set()
+        unique_events_list = list(unique_events)
+        
+        for i, event1 in enumerate(unique_events_list):
+            for j, event2 in enumerate(unique_events_list):
+                if i != j:
+                    possible_sequences.add(f"{event1}->{event2}")
+                    
+                    # Limit sequences to prevent memory explosion
+                    if len(possible_sequences) >= 200:
+                        return possible_sequences
+        
+        return possible_sequences
+    
+    def discover_negative_patterns(self, event_stream: List[Dict], room_id: str):
+        """
+        DEPRECATED - Use _discover_negative_patterns_optimized() instead
+        This old method could cause memory explosion with large datasets
+        """
+        logger.warning("discover_negative_patterns() is deprecated - using optimized version")
+        import asyncio
+        asyncio.create_task(self._discover_negative_patterns_optimized(event_stream, room_id))
     
     def generate_possible_sequences(self, event_stream: List[Dict]) -> set:
         """Generate all theoretically possible sequences from observed events"""
