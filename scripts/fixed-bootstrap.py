@@ -525,23 +525,35 @@ class FixedSystemBootstrap:
                 trained_count = 0
                 start_time = datetime.now()
                 
-                for i, event in enumerate(historical_events):
-                    # Determine occupancy from event
-                    occupancy = self._determine_occupancy_from_event(event)
-                    if occupancy is not None:
-                        # Extract features from event using the ORIGINAL complex method
-                        features = await self._extract_features_from_event(event)
-                        if features:
-                            # Train the model using learn_one
-                            if room in self.components['predictor'].short_term_models:
-                                self.components['predictor'].short_term_models[room].learn_one(features, occupancy)
-                                trained_count += 1
+                # Process events in small batches to allow proper async feature extraction
+                batch_size = 100  # Process 100 events at a time
+                
+                for batch_start in range(0, len(historical_events), batch_size):
+                    batch_end = min(batch_start + batch_size, len(historical_events))
+                    batch_events = historical_events[batch_start:batch_end]
+                    
+                    # Process this batch
+                    for event in batch_events:
+                        # Determine occupancy from event
+                        occupancy = self._determine_occupancy_from_event(event)
+                        if occupancy is not None:
+                            # Extract features from event using the ORIGINAL complex method
+                            # Give it time to complete properly
+                            features = await self._extract_features_from_event(event)
+                            if features:
+                                # Train the model using learn_one
+                                if room in self.components['predictor'].short_term_models:
+                                    self.components['predictor'].short_term_models[room].learn_one(features, occupancy)
+                                    trained_count += 1
                     
                     # Progress update every 10k events
-                    if i % 10000 == 0 and i > 0:
+                    if batch_start % 10000 < batch_size and batch_start > 0:
                         elapsed = (datetime.now() - start_time).total_seconds()
-                        rate = i / elapsed if elapsed > 0 else 0
-                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained) - {rate:.0f} events/sec")
+                        rate = batch_start / elapsed if elapsed > 0 else 0
+                        print(f"      - Processed {batch_start:,}/{len(historical_events):,} events ({trained_count:,} trained) - {rate:.0f} events/sec")
+                    
+                    # Small delay to prevent overwhelming the system
+                    await asyncio.sleep(0.01)  # 10ms delay between batches
                 
                 elapsed = (datetime.now() - start_time).total_seconds()
                 print(f"    ✓ {room} training completed: {trained_count:,} events processed in {elapsed:.1f}s")
