@@ -422,6 +422,7 @@ class PatternDiscovery:
     def test_pattern_significance(self, sequences: List[List[Dict]], window_minutes: int, room_id: str) -> float:
         """
         Test if patterns within time window are statistically significant
+        Returns significance score (0.0 to 1.0, higher = more significant)
         """
         try:
             # Validate inputs
@@ -432,30 +433,108 @@ class PatternDiscovery:
             if not sequences or not isinstance(sequences, list):
                 logger.debug(f"Invalid sequences input: {type(sequences)}")
                 return 0.0
+                
             # Group sequences by time window
             windowed_patterns = self.group_by_time_window(sequences, window_minutes)
             
             if not windowed_patterns or len(windowed_patterns) < 2:
+                logger.debug(f"Not enough windowed patterns ({len(windowed_patterns) if windowed_patterns else 0}) for {room_id} at {window_minutes}min")
                 return 0.0
             
-            # Use chi-squared test for independence
+            # Count pattern frequencies
             pattern_counts = Counter(str(pattern) for pattern in windowed_patterns)
-            expected_frequency = len(windowed_patterns) / len(pattern_counts)
+            unique_patterns = len(pattern_counts)
+            total_patterns = len(windowed_patterns)
+            
+            logger.debug(f"{room_id} {window_minutes}min: {total_patterns} total patterns, {unique_patterns} unique patterns")
+            
+            # Test if pattern distribution is significantly non-random
+            if unique_patterns < 2:
+                logger.debug(f"Only one unique pattern type found for {room_id} at {window_minutes}min")
+                return 0.0
+            
+            # Use proper chi-squared goodness of fit test
+            from scipy.stats import chi2
+            
+            # Expected frequency under null hypothesis (uniform distribution)
+            expected_freq = total_patterns / unique_patterns
             
             # Calculate chi-squared statistic
-            chi_squared = sum(
-                (float(observed) - expected_frequency) ** 2 / expected_frequency
-                for observed in pattern_counts.values()
-                if isinstance(observed, (int, float)) and observed > 0
+            observed_frequencies = list(pattern_counts.values())
+            chi_squared_stat = sum(
+                (observed - expected_freq) ** 2 / expected_freq
+                for observed in observed_frequencies
             )
             
-            # Convert to p-value (simplified)
-            p_value = 1.0 / (1.0 + chi_squared)
+            # Degrees of freedom
+            df = unique_patterns - 1
             
-            return p_value
+            # Calculate proper p-value using scipy
+            p_value = chi2.sf(chi_squared_stat, df) if df > 0 else 1.0
+            
+            # Convert p-value to significance score (lower p-value = higher significance)
+            # Use 1 - p_value, but cap at reasonable levels
+            significance_score = max(0.0, min(1.0, 1.0 - p_value))
+            
+            # Additional pattern strength indicators
+            # Higher pattern repetition increases significance
+            max_pattern_freq = max(observed_frequencies)
+            repetition_bonus = min(0.3, (max_pattern_freq - 1) / total_patterns)
+            
+            # Temporal clustering bonus - patterns that cluster in time are more significant
+            time_clustering_score = self._calculate_temporal_clustering(windowed_patterns, window_minutes)
+            
+            # Combine scores
+            final_score = significance_score + repetition_bonus + time_clustering_score
+            final_score = max(0.0, min(1.0, final_score))
+            
+            if final_score > 0.1:  # Only log meaningful patterns
+                logger.info(f"{room_id} {window_minutes}min: chi2={chi_squared_stat:.3f}, p-value={p_value:.4f}, "
+                           f"significance={significance_score:.3f}, repetition={repetition_bonus:.3f}, "
+                           f"clustering={time_clustering_score:.3f}, final={final_score:.3f}")
+                           
+                # Log top patterns for debugging
+                top_patterns = pattern_counts.most_common(3)
+                logger.debug(f"  Top patterns: {top_patterns}")
+            
+            return final_score
             
         except Exception as e:
-            logger.warning(f"Error testing pattern significance: {e}")
+            logger.warning(f"Error testing pattern significance for {room_id} at {window_minutes}min: {e}")
+            return 0.0
+    
+    def _calculate_temporal_clustering(self, windowed_patterns: List[str], window_minutes: int) -> float:
+        """
+        Calculate temporal clustering score for patterns
+        Patterns that occur close together in time are more significant
+        """
+        try:
+            if len(windowed_patterns) < 2:
+                return 0.0
+            
+            # Simple clustering metric: if patterns repeat within the time window,
+            # they show temporal clustering which increases significance
+            pattern_counts = Counter(windowed_patterns)
+            
+            # Find patterns that occur multiple times
+            repeated_patterns = sum(1 for count in pattern_counts.values() if count > 1)
+            total_unique_patterns = len(pattern_counts)
+            
+            if total_unique_patterns == 0:
+                return 0.0
+            
+            # Higher clustering when more patterns repeat
+            clustering_ratio = repeated_patterns / total_unique_patterns
+            
+            # Scale by window size - shorter windows with repetition are more significant
+            window_scale = max(0.1, min(1.0, 60.0 / window_minutes))  # 60min = baseline
+            
+            clustering_score = clustering_ratio * window_scale * 0.2  # Max 0.2 bonus
+            
+            return max(0.0, min(0.2, clustering_score))
+            
+        except Exception as e:
+            logger.debug(f"Error calculating temporal clustering: {e}")
             return 0.0
     
     def group_by_time_window(self, sequences: List[List[Dict]], window_minutes: int) -> List[str]:
