@@ -514,11 +514,15 @@ class FixedSystemBootstrap:
                 if room in self.components['predictor'].short_term_models:
                     try:
                         model_state = self.components['predictor'].short_term_models[room].save_model()
+                        from datetime import datetime, timezone
                         await self.components['model_store'].store_model(
                             room_id=room, 
                             model_type="short_term", 
                             model_data=model_state,
-                            version_tag="bootstrap_trained"
+                            feature_schema={"temporal_features": "included"},
+                            training_config={"bootstrap_trained": True, "events_processed": trained_count},
+                            performance_metrics={"training_events": trained_count},
+                            training_data_range=(datetime(2020, 1, 1, tzinfo=timezone.utc), datetime.now(timezone.utc))
                         )
                         print(f"    ✓ {room} model saved to storage")
                     except Exception as e:
