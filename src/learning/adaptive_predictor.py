@@ -103,8 +103,8 @@ class AdaptiveOccupancyPredictor:
                 if model_version and model_version.model_data:
                     # Load the saved model state
                     self.short_term_models[room_id].load_model(model_version.model_data)
-                    logger.info(f"✅ Loaded pre-trained model for {room_id} (version: {model_version.version})")
-                    logger.info(f"   Model trained with {model_version.performance_metrics.get('training_events', 'unknown')} events")
+                    logger.info(f"✅ Loaded pre-trained model for {room_id} (version: {model_version.metadata.version})")
+                    logger.info(f"   Model trained with {model_version.metadata.performance_metrics.get('training_events', 'unknown')} events")
                     return
                 else:
                     logger.info(f"No pre-trained model found for {room_id}")
