@@ -498,21 +498,43 @@ class AdaptiveOccupancyPredictor:
         """
         Determine ground truth occupancy from sensor event
         This is the critical component that provides training labels
+        ONLY uses designated full-zone sensors, not subzone sensors
         """
         entity_id = event.get('entity_id', '')
         state = event.get('state', '')
         room = event.get('room', '')
         
-        # For presence sensors, it's straightforward
-        if 'presence' in entity_id.lower():
-            return state == 'on'
+        # Define full-zone sensors for each room
+        FULL_ZONE_SENSORS = {
+            'office': 'binary_sensor.office_presence_full_office',
+            'bedroom': 'binary_sensor.bedroom_presence_sensor_full_bedroom',
+            'living_kitchen': [
+                'binary_sensor.presence_livingroom_full',
+                'binary_sensor.kitchen_pressence_full_kitchen'
+            ],
+            'bathroom': None,  # Uses door logic only
+            'small_bathroom': None,  # Uses door logic only
+        }
+        
+        # Only use designated full-zone sensors for occupancy determination
+        full_zone_sensors = FULL_ZONE_SENSORS.get(room)
+        
+        if full_zone_sensors:
+            # Handle single sensor rooms (office, bedroom)
+            if isinstance(full_zone_sensors, str):
+                if entity_id == full_zone_sensors:
+                    return state == 'on'
+            
+            # Handle multi-sensor rooms (living_kitchen - OR logic)
+            elif isinstance(full_zone_sensors, list):
+                if entity_id in full_zone_sensors:
+                    return state == 'on'
         
         # For door sensors in bathrooms, use bathroom predictor logic
         if room in ['bathroom', 'small_bathroom'] and 'door' in entity_id.lower():
             return self.bathroom_predictor.process_bathroom_event(event).get('occupied', None)
         
-        # For other sensors, we can't directly determine occupancy
-        # Let the system learn patterns instead
+        # For subzone sensors and other sensors, return None (don't determine occupancy)
         return None
     
     async def predict_all_horizons(self, room_id: str) -> Dict[int, Dict[str, Any]]:

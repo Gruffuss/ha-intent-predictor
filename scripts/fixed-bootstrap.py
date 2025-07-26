@@ -534,10 +534,37 @@ class FixedSystemBootstrap:
                 logger.error(f"Training failed for {room}: {e}")
     
     def _determine_occupancy_from_event(self, event):
-        """Determine occupancy from sensor event"""
-        # Simple heuristic: presence sensors indicate occupancy
-        if event.get('sensor_type') == 'presence' or 'presence' in event.get('entity_id', ''):
-            return event.get('state') in ['on', 'detected', True, 1, '1']
+        """Determine occupancy from sensor event - ONLY full-zone sensors"""
+        entity_id = event.get('entity_id', '')
+        state = event.get('state', '')
+        room = event.get('room', '')
+        
+        # Define full-zone sensors for each room
+        FULL_ZONE_SENSORS = {
+            'office': 'binary_sensor.office_presence_full_office',
+            'bedroom': 'binary_sensor.bedroom_presence_sensor_full_bedroom',
+            'living_kitchen': [
+                'binary_sensor.presence_livingroom_full',
+                'binary_sensor.kitchen_pressence_full_kitchen'
+            ],
+            'bathroom': None,  # Uses door logic only
+            'small_bathroom': None,  # Uses door logic only
+        }
+        
+        # Only use designated full-zone sensors for occupancy determination
+        full_zone_sensors = FULL_ZONE_SENSORS.get(room)
+        
+        if full_zone_sensors:
+            # Handle single sensor rooms (office, bedroom)
+            if isinstance(full_zone_sensors, str):
+                if entity_id == full_zone_sensors:
+                    return state in ['on', 'detected', True, 1, '1']
+            
+            # Handle multi-sensor rooms (living_kitchen - OR logic)
+            elif isinstance(full_zone_sensors, list):
+                if entity_id in full_zone_sensors:
+                    return state in ['on', 'detected', True, 1, '1']
+        
         return None
     
     async def _extract_features_from_event(self, event):
