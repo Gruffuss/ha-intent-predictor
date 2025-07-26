@@ -340,7 +340,7 @@ async def main():
         server_config = uvicorn.Config(
             app=api_app,
             host=config.get('host', '0.0.0.0'),
-            port=config.get('port', 8000),
+            port=config.get('port', 8001),
             log_level=config.get('log_level', 'info'),
             lifespan='on'
         )
