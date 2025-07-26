@@ -94,8 +94,7 @@ class PatternDiscovery:
                     from sqlalchemy import text
                     # Load in chunks with LIMIT and OFFSET
                     result = await conn.execute(text("""
-                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, 
-                               zone_type, person, derived_features
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
                         FROM sensor_events 
                         WHERE room = :room 
                         ORDER BY timestamp 
@@ -191,8 +190,7 @@ class PatternDiscovery:
                     from sqlalchemy import text
                     # Limit transition events to prevent memory issues
                     result = await conn.execute(text("""
-                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, 
-                               zone_type, person, derived_features
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
                         FROM sensor_events 
                         WHERE entity_id LIKE '%hallway%' OR entity_id LIKE '%stairs%' 
                         ORDER BY timestamp DESC
