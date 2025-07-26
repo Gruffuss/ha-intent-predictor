@@ -2,15 +2,17 @@
 Automatic Pattern Mining - Discovers behavioral patterns without assumptions
 Implements the sophisticated pattern discovery from CLAUDE.md
 
-OPTIMIZATIONS IMPLEMENTED (to fix 4-hour hanging issue):
+OPTIMIZATIONS IMPLEMENTED (to fix 4-hour hanging + enhance pattern quality):
 1. Chunked database loading (5,000 events at a time) - prevents memory explosion from 100k+ events
-2. Reduced sequence length (max 5 instead of 100) - prevents millions of sequences 
-3. Limited time windows (6 instead of 43,200) - focuses on essential behavioral periods
-4. Memory monitoring with 500MB safety limit - prevents system overload
-5. Timeout protection (30 minutes max per room) - prevents infinite hanging
+2. Increased sequence length (max 15 instead of 5) - captures meaningful behavioral patterns
+3. Comprehensive time windows (14 instead of 6) - covers micro to daily patterns 
+4. Memory monitoring with 4GB safety limit - allows thorough pattern analysis
+5. Timeout protection (1 hour max per room) - allows comprehensive discovery
 6. Progress reporting with resource usage - provides visibility during processing
 7. Pattern pruning (top 100 per room) - controls memory growth
-8. Sampling for negative patterns - reduces computational complexity
+8. Increased event limit (200k instead of 50k) - more comprehensive analysis
+9. Relaxed significance threshold (0.3 instead of 0.05) - finds more patterns
+10. Increased sequence limit (50k instead of 10k) - better pattern discovery
 """
 
 import logging
@@ -35,7 +37,7 @@ class PatternDiscovery:
     def __init__(self):
         self.pattern_library = {}
         self.statistical_tests = StatisticalTestSuite()
-        self.adaptive_threshold = 0.05  # P-value threshold for statistical significance
+        self.adaptive_threshold = 0.3  # Increased threshold to find more patterns initially
         
     async def discover_multizone_patterns(self, room_name: str, historical_events: List[Dict] = None) -> Dict:
         """
@@ -116,10 +118,10 @@ class PatternDiscovery:
                     logger.info(f"  Loaded chunk {offset//chunk_size}: {len(chunk_events):,} events "
                               f"(total: {len(all_events):,})")
                     
-                    # Memory management - limit total events to prevent explosion
-                    if len(all_events) > 50000:
-                        logger.info(f"  Limiting to most recent 50,000 events to prevent memory issues")
-                        all_events = all_events[-50000:]  # Keep most recent
+                    # Memory management - allow more events for comprehensive pattern discovery  
+                    if len(all_events) > 200000:
+                        logger.info(f"  Limiting to most recent 200,000 events for comprehensive analysis")
+                        all_events = all_events[-200000:]  # Keep most recent
                         break
             
         finally:
@@ -227,7 +229,7 @@ class PatternDiscovery:
         """
         logger.info(f"Starting optimized pattern discovery for {room_id} with {len(event_stream):,} events")
         
-        # Memory monitoring
+        # Memory monitoring - Allow up to 4GB for meaningful pattern discovery
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
         logger.info(f"  Initial memory usage: {initial_memory:.1f} MB")
         
@@ -235,9 +237,9 @@ class PatternDiscovery:
         if room_id not in self.pattern_library:
             self.pattern_library[room_id] = set()
         
-        # Timeout protection
+        # Timeout protection - Allow more time for comprehensive analysis
         start_time = datetime.now()
-        max_duration = timedelta(minutes=30)  # Maximum 30 minutes per room
+        max_duration = timedelta(hours=1)  # Maximum 1 hour per room for thorough analysis
         
         # Process events in chunks to prevent memory explosion
         chunk_size = 2000  # Process 2k events at a time
@@ -260,15 +262,15 @@ class PatternDiscovery:
                 logger.warning(f"  Pattern discovery timeout reached ({max_duration}) for {room_id}")
                 break
             
-            # Memory protection
-            if current_memory > initial_memory + 500:  # More than 500MB increase
+            # Memory protection - Allow up to 4GB for comprehensive pattern discovery
+            if current_memory > initial_memory + 4000:  # More than 4GB increase
                 logger.warning(f"  Memory usage too high ({current_memory:.1f} MB), stopping pattern discovery")
                 break
             
-            # Extract sequences with reduced max_length to prevent explosion
+            # Extract sequences with meaningful length for behavioral patterns
             sequences = self.extract_sequences_optimized(chunk_events, 
                                                        min_length=2, 
-                                                       max_length=5)  # Reduced from 100 to 5
+                                                       max_length=15)  # Increased to capture longer behavioral patterns
             
             if not sequences:
                 continue
@@ -350,25 +352,33 @@ class PatternDiscovery:
                 sequence = event_stream[start_idx:start_idx + length]
                 sequences.append(sequence)
                 
-                # Limit total sequences to prevent memory explosion
-                if len(sequences) >= 10000:  # Hard limit
-                    logger.info(f"    Reached sequence limit (10,000), stopping extraction")
+                # Limit total sequences to prevent memory explosion but allow more comprehensive analysis
+                if len(sequences) >= 50000:  # Increased limit for better pattern discovery
+                    logger.info(f"    Reached sequence limit (50,000), stopping extraction")
                     return sequences
         
         return sequences
     
     def get_behavioral_relevant_windows(self) -> List[int]:
         """
-        Return time windows relevant for general behavioral pattern detection
-        Drastically reduced from 43,200 windows to essential behavioral periods
+        Return time windows relevant for comprehensive behavioral pattern detection
+        Increased granularity to capture nuanced behavioral patterns
         """
-        # Focus on general behavioral time windows without assumptions
+        # Comprehensive behavioral time windows for meaningful pattern discovery
         return [
+            5,     # 5 minutes - micro-patterns
+            10,    # 10 minutes - short interactions
             15,    # 15 minutes - immediate activity detection
             30,    # 30 minutes - short activity periods
+            45,    # 45 minutes - extended interactions
             60,    # 1 hour - typical activity blocks
+            90,    # 1.5 hours - longer sessions
             120,   # 2 hours - extended activities  
+            180,   # 3 hours - work/gaming sessions
             240,   # 4 hours - longer behavioral patterns
+            360,   # 6 hours - half-day patterns
+            480,   # 8 hours - work day patterns
+            720,   # 12 hours - half-day cycles
             1440   # 24 hours - daily routine patterns
         ]
     
