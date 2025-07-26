@@ -139,55 +139,25 @@ class FixedSystemBootstrap:
         return False
     
     async def _load_historical_data_chunked(self, room_id: str):
-        """Load historical data for a specific room in smaller chunks"""
+        """Load historical data for a specific room using the original working method"""
         print(f"    - Loading historical data for {room_id}...")
         
         from datetime import timezone
         
         try:
-            # Load data directly from database in smaller chunks to avoid memory issues
-            all_events = []
-            chunk_size = 10000  # Load 10k events at a time
+            # Use the original working method that was successful before
+            start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            end_time = datetime.now(timezone.utc)
             
-            async with self.components['timeseries_db'].engine.begin() as conn:
-                from sqlalchemy import text
-                
-                # Get total count first
-                count_result = await conn.execute(
-                    text("SELECT COUNT(*) FROM sensor_events WHERE room = :room"),
-                    {'room': room_id}
-                )
-                total_events = count_result.fetchone()[0]
-                print(f"      - Found {total_events:,} total events for {room_id}")
-                
-                if total_events == 0:
-                    return []
-                
-                # Load in chunks
-                for offset in range(0, total_events, chunk_size):
-                    print(f"      - Loading chunk {offset:,} to {min(offset + chunk_size, total_events):,}")
-                    
-                    result = await conn.execute(
-                        text("""
-                            SELECT timestamp, entity_id, state, numeric_value, attributes, 
-                                   room, sensor_type, zone_type, zone_info, person, 
-                                   derived_features, processed_at
-                            FROM sensor_events 
-                            WHERE room = :room 
-                            ORDER BY timestamp 
-                            LIMIT :limit OFFSET :offset
-                        """),
-                        {'room': room_id, 'limit': chunk_size, 'offset': offset}
-                    )
-                    
-                    chunk_events = [dict(row._mapping) for row in result.fetchall()]
-                    all_events.extend(chunk_events)
-                    
-                    if len(chunk_events) < chunk_size:
-                        break  # Last chunk
+            # Use the original get_historical_events method that was working
+            events = await self.components['timeseries_db'].get_historical_events(
+                start_time=start_time,
+                end_time=end_time,
+                rooms=[room_id]
+            )
             
-            print(f"    ✓ Loaded {len(all_events):,} total events for {room_id}")
-            return all_events
+            print(f"    ✓ Loaded {len(events):,} total events for {room_id}")
+            return events
             
         except Exception as e:
             print(f"    ❌ Error loading historical data for {room_id}: {e}")
