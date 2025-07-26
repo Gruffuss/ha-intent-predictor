@@ -510,11 +510,20 @@ class FixedSystemBootstrap:
                 
                 print(f"    ✓ {room} training completed: {trained_count:,} events processed")
                 
-                # Save the trained model
+                # Save the trained model to model store
                 if room in self.components['predictor'].short_term_models:
-                    model_state = self.components['predictor'].short_term_models[room].save_model()
-                    await self.components['model_store'].save_room_model(room, model_state)
-                    print(f"    ✓ {room} model saved to storage")
+                    try:
+                        model_state = self.components['predictor'].short_term_models[room].save_model()
+                        await self.components['model_store'].store_model(
+                            room_id=room, 
+                            model_type="short_term", 
+                            model_data=model_state,
+                            version_tag="bootstrap_trained"
+                        )
+                        print(f"    ✓ {room} model saved to storage")
+                    except Exception as e:
+                        print(f"    ⚠️  Could not save {room} model: {e} (training still successful)")
+                        logger.warning(f"Could not save {room} model: {e}")
                 
             except Exception as e:
                 print(f"    ❌ Training failed for {room}: {e}")
