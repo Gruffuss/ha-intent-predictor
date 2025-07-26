@@ -333,7 +333,7 @@ class PatternDiscovery:
             logger.warning(f"Invalid length parameters: min_length={min_length}, max_length={max_length}")
             return sequences
             
-        if min_length < 1 or max_length < min_length or max_length > 10:
+        if min_length < 1 or max_length < min_length or max_length > 20:
             logger.warning(f"Invalid length values: min_length={min_length}, max_length={max_length}")
             return sequences
         
