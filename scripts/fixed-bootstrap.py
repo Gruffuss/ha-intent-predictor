@@ -200,23 +200,28 @@ class FixedSystemBootstrap:
             await self._configure_combined_spaces()
             print("   ✓ Combined spaces configured")
             
-            # Step 6: Train models with historical data (CRITICAL for temporal awareness)
-            print("\n6. 🤖 Training models with historical data...")
-            await self._train_models_with_historical_data()
-            print("   ✓ Models trained with historical data")
+            # Step 6: PATTERN DISCOVERY FIRST (CRITICAL - must happen before training)
+            print("\n6. 🔍 Discovering patterns from historical data...")
+            await self._discover_patterns_from_historical_data()
+            print("   ✓ Patterns discovered and stored")
             
-            # Step 7: Initialize person-specific learning
-            print("\n7. 👥 Initializing person-specific learning...")
+            # Step 7: Train models with historical data + discovered patterns
+            print("\n7. 🤖 Training models with historical data and patterns...")
+            await self._train_models_with_historical_data()
+            print("   ✓ Models trained with historical data and patterns")
+            
+            # Step 8: Initialize person-specific learning
+            print("\n8. 👥 Initializing person-specific learning...")
             await self._initialize_person_learning()
             print("   ✓ Person-specific learning initialized")
             
-            # Step 8: Set up Home Assistant integration
-            print("\n8. 🔌 Setting up Home Assistant integration...")
+            # Step 9: Set up Home Assistant integration
+            print("\n9. 🔌 Setting up Home Assistant integration...")
             await self._setup_ha_integration()
             print("   ✓ Home Assistant integration configured")
             
-            # Step 9: Validate system
-            print("\n9. ✅ Validating system readiness...")
+            # Step 10: Validate system
+            print("\n10. ✅ Validating system readiness...")
             await self._validate_system()
             
             print("\n" + "="*60)
@@ -461,6 +466,36 @@ class FixedSystemBootstrap:
                 SET room = 'living_kitchen' 
                 WHERE room IN ('livingroom', 'kitchen')
             """))
+    
+    async def _discover_patterns_from_historical_data(self):
+        """Discover patterns from historical data BEFORE training models"""
+        print("  - Running sophisticated pattern discovery on historical data...")
+        
+        try:
+            # Use the existing sophisticated pattern discovery methods
+            print(f"  - Discovering patterns for multi-zone rooms...")
+            
+            # Office patterns (critical for gaming detection)
+            office_patterns = await self.components['pattern_discovery'].discover_multizone_patterns('office')
+            print(f"    ✓ Office: {office_patterns.get('pattern_count', 0)} patterns discovered")
+            
+            # Bedroom patterns
+            bedroom_patterns = await self.components['pattern_discovery'].discover_multizone_patterns('bedroom')
+            print(f"    ✓ Bedroom: {bedroom_patterns.get('pattern_count', 0)} patterns discovered")
+            
+            # Living/kitchen patterns  
+            living_kitchen_patterns = await self.components['pattern_discovery'].discover_multizone_patterns('living_kitchen')
+            print(f"    ✓ Living/kitchen: {living_kitchen_patterns.get('pattern_count', 0)} patterns discovered")
+            
+            # Bathroom patterns (special handling)
+            bathroom_patterns = await self.components['pattern_discovery'].discover_bathroom_patterns(['bathroom', 'small_bathroom'])
+            print(f"    ✓ Bathrooms: {len(bathroom_patterns.get('patterns', {}))} pattern sets discovered")
+            
+            print(f"  - Pattern discovery completed - patterns stored in pattern_library")
+            
+        except Exception as e:
+            print(f"    ⚠️  Pattern discovery failed: {e}")
+            logger.warning(f"Pattern discovery failed: {e}")
     
     async def _train_models_with_historical_data(self):
         """Train models with historical data using chunked loading"""
