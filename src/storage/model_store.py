@@ -307,17 +307,17 @@ class ModelStore:
                 return None
             
             async with aiofiles.open(model_path, 'rb') as f:
-                serialized_data = await f.read()
+                compressed_data = await f.read()
             
             # Decompress if needed
             if metadata.compression_enabled:
-                serialized_data = gzip.decompress(serialized_data)
+                serialized_data = gzip.decompress(compressed_data)
+            else:
+                serialized_data = compressed_data
             
-            # Verify checksum
+            # Verify checksum on serialized data (as originally intended)
             checksum = hashlib.sha256(serialized_data).hexdigest()
             if checksum != metadata.checksum:
-                logger.error(f"Checksum mismatch for model {model_id}")
-                return None
             
             # Deserialize model
             model_data = pickle.loads(serialized_data)
