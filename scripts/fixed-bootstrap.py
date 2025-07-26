@@ -139,17 +139,16 @@ class FixedSystemBootstrap:
         return False
     
     async def _load_historical_data_chunked(self, room_id: str):
-        """Load historical data for a specific room using the original working method"""
+        """Load historical data for a specific room"""
         print(f"    - Loading historical data for {room_id}...")
         
         from datetime import timezone
         
         try:
-            # Use the original working method that was successful before
+            # Use a wide date range to get all historical data
             start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
             end_time = datetime.now(timezone.utc)
             
-            # Use the original get_historical_events method that was working
             events = await self.components['timeseries_db'].get_historical_events(
                 start_time=start_time,
                 end_time=end_time,
@@ -493,59 +492,29 @@ class FixedSystemBootstrap:
                 
                 # Now train with actual historical data
                 trained_count = 0
-                start_time = datetime.now()
-                
-                # Process events in small batches to allow proper async feature extraction
-                batch_size = 100  # Process 100 events at a time
-                
-                for batch_start in range(0, len(historical_events), batch_size):
-                    batch_end = min(batch_start + batch_size, len(historical_events))
-                    batch_events = historical_events[batch_start:batch_end]
-                    
-                    # Process this batch
-                    for event in batch_events:
-                        # Determine occupancy from event
-                        occupancy = self._determine_occupancy_from_event(event)
-                        if occupancy is not None:
-                            # Extract features from event using the ORIGINAL complex method
-                            # Give it time to complete properly
-                            features = await self._extract_features_from_event(event)
-                            if features:
-                                # Train the model using learn_one
-                                if room in self.components['predictor'].short_term_models:
-                                    self.components['predictor'].short_term_models[room].learn_one(features, occupancy)
-                                    trained_count += 1
+                for i, event in enumerate(historical_events):
+                    # Determine occupancy from event
+                    occupancy = self._determine_occupancy_from_event(event)
+                    if occupancy is not None:
+                        # Extract features from event
+                        features = await self._extract_features_from_event(event)
+                        if features:
+                            # Train the model using learn_one
+                            if room in self.components['predictor'].short_term_models:
+                                self.components['predictor'].short_term_models[room].learn_one(features, occupancy)
+                                trained_count += 1
                     
                     # Progress update every 10k events
-                    if batch_start % 10000 < batch_size and batch_start > 0:
-                        elapsed = (datetime.now() - start_time).total_seconds()
-                        rate = batch_start / elapsed if elapsed > 0 else 0
-                        print(f"      - Processed {batch_start:,}/{len(historical_events):,} events ({trained_count:,} trained) - {rate:.0f} events/sec")
-                    
-                    # Small delay to prevent overwhelming the system
-                    await asyncio.sleep(0.01)  # 10ms delay between batches
+                    if i % 10000 == 0 and i > 0:
+                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained)")
                 
-                elapsed = (datetime.now() - start_time).total_seconds()
-                print(f"    ✓ {room} training completed: {trained_count:,} events processed in {elapsed:.1f}s")
+                print(f"    ✓ {room} training completed: {trained_count:,} events processed")
                 
-                # Save the trained model to model store
+                # Save the trained model
                 if room in self.components['predictor'].short_term_models:
-                    try:
-                        model_state = self.components['predictor'].short_term_models[room].save_model()
-                        from datetime import datetime, timezone
-                        await self.components['model_store'].store_model(
-                            room_id=room, 
-                            model_type="short_term", 
-                            model_data=model_state,
-                            feature_schema={"temporal_features": "included"},
-                            training_config={"bootstrap_trained": True, "events_processed": trained_count},
-                            performance_metrics={"training_events": trained_count},
-                            training_data_range=(datetime(2020, 1, 1, tzinfo=timezone.utc), datetime.now(timezone.utc))
-                        )
-                        print(f"    ✓ {room} model saved to storage")
-                    except Exception as e:
-                        print(f"    ⚠️  Could not save {room} model: {e} (training still successful)")
-                        logger.warning(f"Could not save {room} model: {e}")
+                    model_state = self.components['predictor'].short_term_models[room].save_model()
+                    await self.components['model_store'].save_room_model(room, model_state)
+                    print(f"    ✓ {room} model saved to storage")
                 
             except Exception as e:
                 print(f"    ❌ Training failed for {room}: {e}")
@@ -570,7 +539,6 @@ class FixedSystemBootstrap:
         except Exception as e:
             logger.debug(f"Feature extraction failed for event: {e}")
             return None
-    
     
     async def _initialize_person_learning(self):
         """Initialize person-specific learning"""
