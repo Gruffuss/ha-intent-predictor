@@ -96,14 +96,18 @@ class AdaptiveOccupancyPredictor:
         try:
             logger.info(f"Loading pre-trained models for {room_id}")
             
-            # Try to load existing models from model store
+            # Try to load existing models from model store using correct API
             try:
-                model_state = await self.model_store.load_room_model(room_id)
-                if model_state and 'short_term_model' in model_state:
+                # Use get_latest_model with correct model_type from bootstrap
+                model_version = await self.model_store.get_latest_model(room_id, "short_term")
+                if model_version and model_version.model_data:
                     # Load the saved model state
-                    self.short_term_models[room_id].load_model(model_state['short_term_model'])
-                    logger.info(f"✅ Loaded pre-trained model for {room_id}")
+                    self.short_term_models[room_id].load_model(model_version.model_data)
+                    logger.info(f"✅ Loaded pre-trained model for {room_id} (version: {model_version.version})")
+                    logger.info(f"   Model trained with {model_version.performance_metrics.get('training_events', 'unknown')} events")
                     return
+                else:
+                    logger.info(f"No pre-trained model found for {room_id}")
             except Exception as e:
                 logger.warning(f"Could not load pre-trained model for {room_id}: {e}")
             
