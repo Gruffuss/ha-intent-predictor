@@ -839,7 +839,12 @@ class ImprovedPatternDiscovery:
             )
             
             # Binomial test: is this significantly different from baseline?
-            p_value = stats.binom_test(occupied_count, total_count, baseline_prob)
+            # Use binomtest for newer scipy versions (renamed from binom_test)
+            try:
+                p_value = stats.binomtest(occupied_count, total_count, baseline_prob).pvalue
+            except AttributeError:
+                # Fallback for older scipy versions
+                p_value = stats.binom_test(occupied_count, total_count, baseline_prob)
             
             if p_value < 0.05:  # Significant pattern
                 effect_size = abs(observed_prob - baseline_prob)
