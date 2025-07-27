@@ -69,8 +69,8 @@ class PatternDiscovery:
         
         logger.info(f"Discovered {len(patterns)} patterns for {room_name}")
         
-        # Save discovered patterns to database
-        await self._save_patterns_to_database(room_name, patterns)
+        # Cache discovered patterns in Redis where models look for them
+        await self._cache_patterns_for_models(room_name, patterns)
         
         return {
             'room': room_name,
@@ -523,74 +523,64 @@ class PatternDiscovery:
             logger.warning(f"Error testing pattern significance for {room_id} at {window_minutes}min: {e}")
             return 0.0
     
-    async def _save_patterns_to_database(self, room_name: str, patterns: set) -> None:
-        """Save discovered patterns to the database for persistence and model training"""
+    async def _cache_patterns_for_models(self, room_name: str, patterns: set) -> None:
+        """Cache discovered patterns in Redis format that models expect"""
         if not patterns:
-            logger.debug(f"No patterns to save for {room_name}")
+            logger.debug(f"No patterns to cache for {room_name}")
             return
             
         try:
-            from src.storage.timeseries_db import TimescaleDBManager
-            from config.config_loader import ConfigLoader
-            import json
-            
-            config = ConfigLoader()
-            db_config = config.get("database.timescale")
-            db = TimescaleDBManager(f"postgresql+asyncpg://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
-            await db.initialize()
-            
-            # Clear existing patterns for this room to avoid duplicates
-            async with db.engine.begin() as conn:
-                from sqlalchemy import text
-                await conn.execute(text("DELETE FROM discovered_patterns WHERE room = :room"), 
-                                 {"room": room_name})
-                
-                # Insert new patterns
-                pattern_records = []
-                for i, pattern in enumerate(patterns):
-                    # Parse pattern data (assuming it's stored as string representation)
-                    try:
-                        # For now, store pattern as-is - we'd need to parse the actual pattern structure
-                        pattern_data = {
-                            "pattern_sequence": str(pattern),
-                            "pattern_id": f"{room_name}_{i}",
-                            "discovery_method": "temporal_sequence_mining"
-                        }
-                        
-                        # Estimate pattern statistics (these would come from the actual discovery process)
-                        # For now, use placeholder values - in real implementation, these should be tracked
-                        pattern_record = {
-                            "room": room_name,
-                            "pattern_type": "temporal_sequence",
-                            "pattern_data": json.dumps(pattern_data),
-                            "frequency": 1,  # Would be calculated during discovery
-                            "confidence": 0.7,  # Would be calculated during discovery  
-                            "support": 0.1,  # Would be calculated during discovery
-                            "significance_score": 0.5  # Would come from statistical test
-                        }
-                        pattern_records.append(pattern_record)
-                        
-                    except Exception as e:
-                        logger.warning(f"Error processing pattern {pattern}: {e}")
-                        continue
-                
-                # Batch insert all patterns
-                if pattern_records:
-                    insert_sql = text("""
-                        INSERT INTO discovered_patterns 
-                        (room, pattern_type, pattern_data, frequency, confidence, support, significance_score)
-                        VALUES (:room, :pattern_type, :pattern_data, :frequency, :confidence, :support, :significance_score)
-                    """)
+            # Convert pattern objects to format expected by models
+            pattern_list = []
+            for pattern_obj in patterns:
+                try:
+                    # Extract pattern data from Pattern/NegativePattern objects
+                    pattern_str = str(pattern_obj)
+                    # Try to get actual pattern data if object has it
+                    if hasattr(pattern_obj, 'sequence'):
+                        pattern_data = ''.join([f"{evt.get('room', 'U')}{evt.get('state', 0)}" 
+                                              for evt in pattern_obj.sequence])
+                    elif hasattr(pattern_obj, 'pattern'):
+                        pattern_data = pattern_obj.pattern
+                    else:
+                        # Fallback to string representation
+                        pattern_data = pattern_str.split()[-1] if ' ' in pattern_str else pattern_str
                     
-                    await conn.execute(insert_sql, pattern_records)
-                    logger.info(f"Saved {len(pattern_records)} patterns to database for {room_name}")
+                    # Create pattern dict in format models expect
+                    pattern_dict = {
+                        'pattern': pattern_data,
+                        'frequency': getattr(pattern_obj, 'frequency', 1),
+                        'length': len(pattern_data) if isinstance(pattern_data, str) else 1,
+                        'significance': getattr(pattern_obj, 'significance', 0.5)
+                    }
+                    pattern_list.append(pattern_dict)
+                    
+                except Exception as e:
+                    logger.warning(f"Error converting pattern {pattern_obj}: {e}")
+                    continue
+            
+            if pattern_list:
+                # Cache patterns in Redis where models look for them
+                from src.storage.feature_store import RedisFeatureStore
+                feature_store = RedisFeatureStore()
+                await feature_store.initialize()
+                
+                # Cache with 'all_patterns' key that get_room_patterns() expects
+                success = await feature_store.cache_pattern(room_name, 'all_patterns', pattern_list)
+                
+                if success:
+                    logger.info(f"Cached {len(pattern_list)} patterns in Redis for {room_name}")
                 else:
-                    logger.warning(f"No valid patterns to save for {room_name}")
-            
-            await db.close()
-            
+                    logger.warning(f"Failed to cache patterns for {room_name}")
+                    
+                await feature_store.close()
+            else:
+                logger.warning(f"No valid patterns to cache for {room_name}")
+                
         except Exception as e:
-            logger.error(f"Error saving patterns to database for {room_name}: {e}")
+            logger.error(f"Error caching patterns for {room_name}: {e}")
+
+    # Database storage removed - models only use Redis cache
 
     def _calculate_temporal_clustering(self, windowed_patterns: List[str], window_minutes: int) -> float:
         """
