@@ -64,6 +64,30 @@ class AdaptiveOccupancyPredictor:
         self.learning_active = False
         self.prediction_cache = {}
         
+        # Feature engineering pipeline
+        self.feature_engineering_pipeline = {
+            'temporal_features': {
+                'hour_sin': lambda x: np.sin(2 * np.pi * x.get('hour', 0) / 24),
+                'hour_cos': lambda x: np.cos(2 * np.pi * x.get('hour', 0) / 24),
+                'day_sin': lambda x: np.sin(2 * np.pi * x.get('day_of_week', 0) / 7),
+                'day_cos': lambda x: np.cos(2 * np.pi * x.get('day_of_week', 0) / 7)
+            },
+            'lag_features': {
+                'sensor_lag_1': lambda x: x.get('sensor_state_lag_1', 0),
+                'sensor_lag_5': lambda x: x.get('sensor_state_lag_5', 0),
+                'sensor_lag_15': lambda x: x.get('sensor_state_lag_15', 0)
+            },
+            'statistical_features': {
+                'sensor_count_1h': lambda x: x.get('sensor_activations_1h', 0),
+                'sensor_count_6h': lambda x: x.get('sensor_activations_6h', 0),
+                'avg_activation_time': lambda x: x.get('avg_activation_duration', 0)
+            },
+            'interaction_features': {
+                'hour_weekday': lambda x: x.get('hour', 0) * x.get('day_of_week', 0),
+                'sensor_time_interaction': lambda x: x.get('sensor_state', 0) * x.get('hour', 0)
+            }
+        }
+        
         logger.info("Initialized adaptive occupancy predictor")
     
     async def initialize(self):
