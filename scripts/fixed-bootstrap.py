@@ -431,6 +431,7 @@ class FixedSystemBootstrap:
         predictor_config = self.config.config.copy()
         predictor_config['timeseries_db'] = self.components['timeseries_db']
         predictor_config['feature_store'] = self.components['feature_store']
+        predictor_config['model_store'] = self.components['model_store']  # FIX: Add missing model_store
         self.components['predictor'] = AdaptiveOccupancyPredictor(config=predictor_config)
         await self.components['predictor'].initialize()
         
