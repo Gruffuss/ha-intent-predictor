@@ -13,7 +13,7 @@ from collections import defaultdict
 # Import all the components we've implemented
 from src.ingestion.data_enricher import DynamicFeatureDiscovery, AdaptiveFeatureSelector
 from src.learning.online_models import ContinuousLearningModel, MultiHorizonPredictor
-from src.learning.pattern_discovery import PatternDiscovery, UnbiasedPatternMiner
+from src.learning.pattern_discovery import PatternDiscovery
 from src.learning.anomaly_detection import AdaptiveCatDetector, OnlineAnomalyDetector
 from src.prediction.bathroom_predictor import BathroomOccupancyPredictor
 from src.adaptation.performance_monitor import PerformanceMonitor
@@ -41,7 +41,7 @@ class AdaptiveOccupancyPredictor:
         self.dynamic_feature_discovery = DynamicFeatureDiscovery()
         self.adaptive_feature_selector = AdaptiveFeatureSelector()
         self.pattern_discovery = PatternDiscovery()
-        self.unbiased_pattern_miner = UnbiasedPatternMiner()
+        # UnbiasedPatternMiner removed - using advanced PatternDiscovery instead
         self.adaptive_cat_detector = AdaptiveCatDetector()
         self.bathroom_predictor = BathroomOccupancyPredictor()
         self.performance_monitor = PerformanceMonitor()
@@ -348,7 +348,7 @@ class AdaptiveOccupancyPredictor:
             recent_events = await self.timeseries_db.get_recent_events(minutes=60*24, rooms=[room_id])  # 24 hours
             
             if recent_events:
-                patterns = self.unbiased_pattern_miner.mine_patterns(recent_events)
+                patterns = await self.pattern_discovery.discover_multizone_patterns(room_id, recent_events)
                 
                 # Cache patterns
                 await self.feature_store.cache_pattern(room_id, 'all_patterns', patterns)
