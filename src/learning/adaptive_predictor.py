@@ -75,14 +75,16 @@ class AdaptiveOccupancyPredictor:
             
             # Initialize models for each room
             for room in self.rooms:
-                # Short-term models for immediate adaptation
-                self.short_term_models[room] = ContinuousLearningModel(f"{room}_short_term")
-                
                 # Long-term models for pattern discovery
                 self.long_term_models[room] = PatternDiscoveryModel(room)
                 
-                # Load pre-trained models from model store (trained by fixed-bootstrap.py)
-                await self.load_pretrained_models(room)
+                # Try to load pre-trained models first
+                model_loaded = await self.load_pretrained_models(room)
+                
+                # Only create fresh models if no pre-trained model was loaded
+                if not model_loaded:
+                    logger.info(f"No pre-trained model found for {room}, creating fresh model")
+                    self.short_term_models[room] = ContinuousLearningModel(f"{room}_short_term")
             
             self.initialized = True
             logger.info("✅ Adaptive occupancy predictor initialized successfully")
@@ -91,32 +93,31 @@ class AdaptiveOccupancyPredictor:
             logger.error(f"Failed to initialize adaptive predictor: {e}")
             raise
     
-    async def load_pretrained_models(self, room_id: str):
-        """Load pre-trained models from model store (trained by fixed-bootstrap.py)"""
+    async def load_pretrained_models(self, room_id: str) -> bool:
+        """
+        Load pre-trained models from model store (trained by fixed-bootstrap.py)
+        Returns True if model was successfully loaded, False otherwise
+        """
         try:
             logger.info(f"Loading pre-trained models for {room_id}")
             
             # Try to load existing models from model store using correct API
-            try:
-                # Use get_latest_model with correct model_type from bootstrap
-                model_version = await self.model_store.get_latest_model(room_id, "short_term")
-                if model_version and model_version.model_data:
-                    # Load the saved model state
-                    self.short_term_models[room_id].load_model(model_version.model_data)
-                    logger.info(f"✅ Loaded pre-trained model for {room_id} (version: {model_version.metadata.version})")
-                    logger.info(f"   Model trained with {model_version.metadata.performance_metrics.get('training_events', 'unknown')} events")
-                    return
-                else:
-                    logger.info(f"No pre-trained model found for {room_id}")
-            except Exception as e:
-                logger.warning(f"Could not load pre-trained model for {room_id}: {e}")
-            
-            # If no pre-trained model exists, initialize with empty model
-            # (fixed-bootstrap.py will train it with historical data)
-            logger.info(f"No pre-trained model found for {room_id}, using fresh model")
+            model_version = await self.model_store.get_latest_model(room_id, "short_term")
+            if model_version and model_version.model_data:
+                # Create model with the loaded data
+                self.short_term_models[room_id] = ContinuousLearningModel(f"{room_id}_short_term")
+                self.short_term_models[room_id].load_model(model_version.model_data)
+                
+                logger.info(f"✅ Loaded pre-trained model for {room_id} (version: {model_version.metadata.version})")
+                logger.info(f"   Model trained with {model_version.metadata.performance_metrics.get('training_events', 'unknown')} events")
+                return True
+            else:
+                logger.info(f"No pre-trained model found for {room_id}")
+                return False
                 
         except Exception as e:
-            logger.error(f"Error loading pre-trained model for {room_id}: {e}")
+            logger.warning(f"Could not load pre-trained model for {room_id}: {e}")
+            return False
     
     async def learn_from_observation(self, 
                                    room_id: str, 
