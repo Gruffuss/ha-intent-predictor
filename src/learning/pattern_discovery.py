@@ -97,11 +97,21 @@ class PatternDiscovery:
             while True:
                 async with db.engine.begin() as conn:
                     from sqlalchemy import text
-                    # Load in chunks with LIMIT and OFFSET
+                    # Load in chunks with LIMIT and OFFSET - ONLY full room sensors for patterns
                     result = await conn.execute(text("""
                         SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
                         FROM sensor_events 
                         WHERE room = :room 
+                        AND (
+                            entity_id LIKE '%_full_%' OR 
+                            entity_id LIKE '%full_%' OR
+                            entity_id LIKE '%_presence_%full%' OR
+                            (entity_id LIKE '%presence%' AND entity_id LIKE '%full%')
+                        )
+                        AND entity_id NOT LIKE '%temperature%'
+                        AND entity_id NOT LIKE '%humidity%' 
+                        AND entity_id NOT LIKE '%pressure%'
+                        AND entity_id NOT LIKE '%light_level%'
                         ORDER BY timestamp 
                         LIMIT :limit OFFSET :offset
                     """), {
