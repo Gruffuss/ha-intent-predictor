@@ -917,6 +917,59 @@ class AdaptiveOccupancyPredictor:
         """
         return await self.get_room_metrics(room_id)
 
+    def auto_feature_engineering(self, raw_features: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Automatically engineer features from raw sensor data.
+        Delegates to AutoML's feature engineering pipeline.
+        
+        Args:
+            raw_features: Raw sensor features
+            
+        Returns:
+            Engineered features
+        """
+        engineered_features = raw_features.copy()
+        
+        try:
+            # Delegate to AutoML's feature engineering pipeline
+            pipeline = self.feature_selector.feature_engineering_pipeline
+            
+            # Apply temporal feature engineering
+            for name, func in pipeline['temporal_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply lag features
+            for name, func in pipeline['lag_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply statistical features
+            for name, func in pipeline['statistical_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            # Apply interaction features
+            for name, func in pipeline['interaction_features'].items():
+                try:
+                    engineered_features[name] = func(raw_features)
+                except Exception:
+                    engineered_features[name] = 0
+            
+            logger.debug(f"Engineered {len(engineered_features)} features from {len(raw_features)} raw features")
+            
+        except Exception as e:
+            logger.error(f"Error in feature engineering: {e}")
+            return raw_features
+        
+        return engineered_features
+
 
 class PatternDiscoveryModel:
     """Wrapper for long-term pattern discovery per room"""
@@ -1046,59 +1099,6 @@ class AutoML:
         self.model_evaluations = defaultdict(list)
         self.current_best_model = None
         self.evaluation_counter = 0
-    
-    def auto_feature_engineering(self, raw_features: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Automatically engineer features from raw sensor data.
-        Delegates to AutoML's feature engineering pipeline.
-        
-        Args:
-            raw_features: Raw sensor features
-            
-        Returns:
-            Engineered features
-        """
-        engineered_features = raw_features.copy()
-        
-        try:
-            # Delegate to AutoML's feature engineering pipeline
-            pipeline = self.feature_selector.feature_engineering_pipeline
-            
-            # Apply temporal feature engineering
-            for name, func in pipeline['temporal_features'].items():
-                try:
-                    engineered_features[name] = func(raw_features)
-                except Exception:
-                    engineered_features[name] = 0
-            
-            # Apply lag features
-            for name, func in pipeline['lag_features'].items():
-                try:
-                    engineered_features[name] = func(raw_features)
-                except Exception:
-                    engineered_features[name] = 0
-            
-            # Apply statistical features
-            for name, func in pipeline['statistical_features'].items():
-                try:
-                    engineered_features[name] = func(raw_features)
-                except Exception:
-                    engineered_features[name] = 0
-            
-            # Apply interaction features
-            for name, func in pipeline['interaction_features'].items():
-                try:
-                    engineered_features[name] = func(raw_features)
-                except Exception:
-                    engineered_features[name] = 0
-            
-            logger.debug(f"Engineered {len(engineered_features)} features from {len(raw_features)} raw features")
-            
-        except Exception as e:
-            logger.error(f"Error in feature engineering: {e}")
-            return raw_features
-        
-        return engineered_features
     
     def select_features(self, features: Dict[str, Any]) -> Dict[str, Any]:
         """
