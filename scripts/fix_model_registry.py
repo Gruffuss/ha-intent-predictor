@@ -35,8 +35,8 @@ def fix_model_registry():
             room_id = metadata['room_id']
             version = metadata['version']
             
-            # Use room_id_short_term as the key for registry lookup
-            registry_key = f"{room_id}_short_term"
+            # Use room_id as the key for registry lookup (model_type is separate)
+            registry_key = room_id
             
             if registry_key not in registry:
                 registry[registry_key] = {}
