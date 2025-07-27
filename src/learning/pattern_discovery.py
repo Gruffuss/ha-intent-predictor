@@ -121,7 +121,7 @@ class PatternDiscovery:
         
         try:
             # CHUNKED PROCESSING - Process events in chunks to prevent memory explosion
-            chunk_size = 10000  # Process 10k events at a time for meaningful pattern discovery
+            chunk_size = 6000  # Process 6k events at a time - balanced for 8GB system
             total_patterns_found = 0
             total_windows_tested = 0
             
