@@ -108,74 +108,139 @@ class PatternDiscovery:
             await db.close()
     
     async def _discover_patterns_with_monitoring(self, event_stream: List[Dict], room_id: str):
-        """Original pattern discovery with memory monitoring"""
-        logger.info(f"Starting pattern discovery for {room_id} with {len(event_stream):,} events")
+        """Original pattern discovery with chunked processing and enhanced monitoring"""
+        logger.info(f"🔍 Starting pattern discovery for {room_id} with {len(event_stream):,} events")
         
         # Memory monitoring
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
         start_time = datetime.now()
         max_duration = timedelta(hours=1)  # 1 hour timeout
         
+        # Initialize pattern storage
+        if room_id not in self.pattern_library:
+            self.pattern_library[room_id] = set()
+        
         try:
-            # ORIGINAL ALGORITHM - Variable-length sequence mining
-            sequences = self.extract_sequences(event_stream, 
-                                             min_length=2, 
-                                             max_length=100)
+            # CHUNKED PROCESSING - Process events in chunks to prevent memory explosion
+            chunk_size = 2000  # Process 2k events at a time to control memory
+            total_patterns_found = 0
+            total_windows_tested = 0
             
-            logger.info(f"Extracted {len(sequences):,} sequences")
+            logger.info(f"📊 Processing {len(event_stream):,} events in chunks of {chunk_size:,}")
             
-            # ORIGINAL ALGORITHM - Test every possible time window
-            tested_windows = 0
-            significant_patterns = 0
-            
-            for window in self.generate_time_windows():
-                # Memory and timeout checks
+            for chunk_start in range(0, len(event_stream), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(event_stream))
+                chunk_events = event_stream[chunk_start:chunk_end]
+                
+                # Progress monitoring
+                progress_pct = (chunk_end / len(event_stream)) * 100
                 current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
                 elapsed_time = datetime.now() - start_time
                 
+                logger.info(f"🔄 Processing chunk {chunk_start//chunk_size + 1}/{(len(event_stream) + chunk_size - 1)//chunk_size}")
+                logger.info(f"   📈 Progress: {progress_pct:.1f}% ({chunk_end:,}/{len(event_stream):,} events)")
+                logger.info(f"   💾 Memory: {current_memory:.1f} MB (+{current_memory-initial_memory:.1f} MB)")
+                logger.info(f"   ⏱️  Duration: {elapsed_time}")
+                
+                # Memory safety check
                 if current_memory > 4000:  # 4GB limit
-                    logger.warning(f"Memory limit reached ({current_memory:.1f} MB), stopping pattern discovery")
+                    logger.warning(f"⚠️  Memory limit reached ({current_memory:.1f} MB), stopping pattern discovery")
                     break
                 
                 if elapsed_time > max_duration:
-                    logger.warning(f"Time limit reached ({elapsed_time}), stopping pattern discovery")
+                    logger.warning(f"⚠️  Time limit reached ({elapsed_time}), stopping pattern discovery")
                     break
                 
-                # ORIGINAL ALGORITHM - Test pattern significance
-                pattern_strength = self.test_pattern_significance(
-                    sequences, window, room_id
-                )
+                # ORIGINAL ALGORITHM - Extract sequences from chunk
+                logger.info(f"   🧩 Extracting sequences from {len(chunk_events):,} events...")
+                sequences = self.extract_sequences(chunk_events, 
+                                                 min_length=2, 
+                                                 max_length=15)  # Reduced from 100 to 15 for memory efficiency
                 
-                tested_windows += 1
+                if not sequences:
+                    logger.info(f"   ⚠️  No sequences found in chunk, skipping")
+                    continue
                 
-                if pattern_strength > self.adaptive_threshold:
-                    if room_id not in self.pattern_library:
-                        self.pattern_library[room_id] = set()
-                        
-                    self.pattern_library[room_id].add(
-                        Pattern(sequences, window, pattern_strength)
+                logger.info(f"   ✅ Extracted {len(sequences):,} sequences")
+                
+                # ORIGINAL ALGORITHM - Test time windows for this chunk
+                chunk_patterns = 0
+                chunk_windows_tested = 0
+                
+                # Test subset of time windows to balance discovery vs performance
+                time_windows = self.get_priority_time_windows()  # Focus on most important windows
+                logger.info(f"   🎯 Testing {len(time_windows)} priority time windows...")
+                
+                for window in time_windows:
+                    # Quick memory check
+                    current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+                    if current_memory > 3500:  # 3.5GB safety buffer
+                        logger.warning(f"   ⚠️  Memory approaching limit ({current_memory:.1f} MB), stopping window testing")
+                        break
+                    
+                    # ORIGINAL ALGORITHM - Test pattern significance
+                    pattern_strength = self.test_pattern_significance(
+                        sequences, window, room_id
                     )
-                    significant_patterns += 1
+                    
+                    chunk_windows_tested += 1
+                    
+                    if pattern_strength > self.adaptive_threshold:
+                        self.pattern_library[room_id].add(
+                            Pattern(sequences, window, pattern_strength)
+                        )
+                        chunk_patterns += 1
+                        logger.debug(f"      🎯 Found significant pattern: window={window}min, strength={pattern_strength:.4f}")
+                    
+                    # Progress logging every 50 windows
+                    if chunk_windows_tested % 50 == 0:
+                        logger.info(f"      📊 Tested {chunk_windows_tested}/{len(time_windows)} windows, found {chunk_patterns} patterns")
                 
-                # Progress logging every 1000 windows
-                if tested_windows % 1000 == 0:
-                    logger.info(f"Tested {tested_windows:,} windows, found {significant_patterns} significant patterns")
+                total_patterns_found += chunk_patterns
+                total_windows_tested += chunk_windows_tested
+                
+                logger.info(f"   ✅ Chunk complete: {chunk_patterns} patterns found, {chunk_windows_tested} windows tested")
+                logger.info(f"   📊 Running totals: {total_patterns_found} patterns, {total_windows_tested} windows")
             
             # ORIGINAL ALGORITHM - Detect anti-patterns (what DOESN'T happen)
-            logger.info(f"Discovering negative patterns for {room_id}")
-            self.discover_negative_patterns(event_stream, room_id)
+            logger.info(f"🔍 Discovering negative patterns for {room_id}...")
+            # Use sample of events to prevent memory explosion in negative pattern discovery
+            sample_events = event_stream[::max(1, len(event_stream)//1000)]  # Sample every Nth event
+            logger.info(f"   📊 Using {len(sample_events):,} sampled events for negative pattern analysis")
+            self.discover_negative_patterns(sample_events, room_id)
             
             final_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
             total_patterns = len(self.pattern_library.get(room_id, []))
             
-            logger.info(f"Pattern discovery completed for {room_id}:")
-            logger.info(f"  - Tested {tested_windows:,} time windows")
-            logger.info(f"  - Found {total_patterns} total patterns")
-            logger.info(f"  - Memory usage: {final_memory:.1f} MB (+{final_memory-initial_memory:.1f} MB)")
-            logger.info(f"  - Duration: {datetime.now() - start_time}")
+            logger.info(f"🎉 Pattern discovery completed for {room_id}:")
+            logger.info(f"   📊 Total patterns found: {total_patterns}")
+            logger.info(f"   🎯 Time windows tested: {total_windows_tested:,}")
+            logger.info(f"   📈 Events processed: {len(event_stream):,}")
+            logger.info(f"   💾 Memory usage: {final_memory:.1f} MB (+{final_memory-initial_memory:.1f} MB)")
+            logger.info(f"   ⏱️  Total duration: {datetime.now() - start_time}")
+            logger.info(f"   ⚡ Processing rate: {len(event_stream)/(elapsed_time.total_seconds() or 1):.0f} events/sec")
             
         except Exception as e:
-            logger.error(f"Error in pattern discovery for {room_id}: {e}")
+            logger.error(f"❌ Error in pattern discovery for {room_id}: {e}")
+            import traceback
+            logger.error(f"📍 Traceback: {traceback.format_exc()}")
+    
+    def get_priority_time_windows(self) -> List[int]:
+        """Get priority time windows for focused pattern discovery"""
+        # Focus on behaviorally relevant windows instead of all 43,200 possibilities
+        priority_windows = [
+            # Micro patterns (immediate responses)
+            1, 2, 3, 5, 10, 15, 30,
+            # Activity blocks
+            45, 60, 90, 120, 180,
+            # Behavioral cycles
+            240, 360, 480, 720,  # 4h, 6h, 8h, 12h
+            1440, 2880, 4320,    # 1d, 2d, 3d
+            # Weekly patterns
+            10080,  # 1 week
+        ]
+        
+        return priority_windows
     
     def generate_time_windows(self):
         """
