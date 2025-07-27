@@ -111,10 +111,9 @@ class PatternDiscovery:
         """Original pattern discovery with chunked processing and enhanced monitoring"""
         logger.info(f"🔍 Starting pattern discovery for {room_id} with {len(event_stream):,} events")
         
-        # Memory monitoring
+        # Memory monitoring  
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
         start_time = datetime.now()
-        max_duration = timedelta(hours=1)  # 1 hour timeout
         
         # Initialize pattern storage
         if room_id not in self.pattern_library:
@@ -147,9 +146,7 @@ class PatternDiscovery:
                     logger.warning(f"⚠️  Memory limit reached ({current_memory:.1f} MB), stopping pattern discovery")
                     break
                 
-                if elapsed_time > max_duration:
-                    logger.warning(f"⚠️  Time limit reached ({elapsed_time}), stopping pattern discovery")
-                    break
+                # Remove time limit - let pattern discovery complete fully
                 
                 # ORIGINAL ALGORITHM - Extract sequences from chunk
                 logger.info(f"   🧩 Extracting sequences from {len(chunk_events):,} events...")
@@ -185,7 +182,7 @@ class PatternDiscovery:
                     
                     chunk_windows_tested += 1
                     
-                    if pattern_strength > self.adaptive_threshold:
+                    if pattern_strength < self.adaptive_threshold:  # FIX: Accept LOW fake p-values (HIGH chi-squared)
                         self.pattern_library[room_id].add(
                             Pattern(sequences, window, pattern_strength)
                         )
