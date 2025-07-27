@@ -18,6 +18,11 @@ catboost>=1.2.0
 # Pattern mining and clustering
 suffix-trees>=0.3.0
 tsfresh>=0.20.0
+stumpy>=1.12.0          # Matrix Profile for pattern discovery
+pm4py>=2.7.0           # Process mining
+mlxtend>=0.23.0         # Association rules & sequential patterns
+pyod>=1.1.0            # Outlier detection
+ruptures>=1.1.0        # Change point detection
 
 # Time series and statistics
 statsmodels>=0.14.0
