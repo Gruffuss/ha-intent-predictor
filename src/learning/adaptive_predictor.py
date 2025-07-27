@@ -64,30 +64,6 @@ class AdaptiveOccupancyPredictor:
         self.learning_active = False
         self.prediction_cache = {}
         
-        # Feature engineering pipeline
-        self.feature_engineering_pipeline = {
-            'temporal_features': {
-                'hour_sin': lambda x: np.sin(2 * np.pi * x.get('hour', 0) / 24),
-                'hour_cos': lambda x: np.cos(2 * np.pi * x.get('hour', 0) / 24),
-                'day_sin': lambda x: np.sin(2 * np.pi * x.get('day_of_week', 0) / 7),
-                'day_cos': lambda x: np.cos(2 * np.pi * x.get('day_of_week', 0) / 7)
-            },
-            'lag_features': {
-                'sensor_lag_1': lambda x: x.get('sensor_state_lag_1', 0),
-                'sensor_lag_5': lambda x: x.get('sensor_state_lag_5', 0),
-                'sensor_lag_15': lambda x: x.get('sensor_state_lag_15', 0)
-            },
-            'statistical_features': {
-                'sensor_count_1h': lambda x: x.get('sensor_activations_1h', 0),
-                'sensor_count_6h': lambda x: x.get('sensor_activations_6h', 0),
-                'avg_activation_time': lambda x: x.get('avg_activation_duration', 0)
-            },
-            'interaction_features': {
-                'hour_weekday': lambda x: x.get('hour', 0) * x.get('day_of_week', 0),
-                'sensor_time_interaction': lambda x: x.get('sensor_state', 0) * x.get('hour', 0)
-            }
-        }
-        
         logger.info("Initialized adaptive occupancy predictor")
     
     async def initialize(self):
@@ -1074,6 +1050,7 @@ class AutoML:
     def auto_feature_engineering(self, raw_features: Dict[str, Any]) -> Dict[str, Any]:
         """
         Automatically engineer features from raw sensor data.
+        Delegates to AutoML's feature engineering pipeline.
         
         Args:
             raw_features: Raw sensor features
@@ -1084,29 +1061,32 @@ class AutoML:
         engineered_features = raw_features.copy()
         
         try:
+            # Delegate to AutoML's feature engineering pipeline
+            pipeline = self.feature_selector.feature_engineering_pipeline
+            
             # Apply temporal feature engineering
-            for name, func in self.feature_engineering_pipeline['temporal_features'].items():
+            for name, func in pipeline['temporal_features'].items():
                 try:
                     engineered_features[name] = func(raw_features)
                 except Exception:
                     engineered_features[name] = 0
             
             # Apply lag features
-            for name, func in self.feature_engineering_pipeline['lag_features'].items():
+            for name, func in pipeline['lag_features'].items():
                 try:
                     engineered_features[name] = func(raw_features)
                 except Exception:
                     engineered_features[name] = 0
             
             # Apply statistical features
-            for name, func in self.feature_engineering_pipeline['statistical_features'].items():
+            for name, func in pipeline['statistical_features'].items():
                 try:
                     engineered_features[name] = func(raw_features)
                 except Exception:
                     engineered_features[name] = 0
             
             # Apply interaction features
-            for name, func in self.feature_engineering_pipeline['interaction_features'].items():
+            for name, func in pipeline['interaction_features'].items():
                 try:
                     engineered_features[name] = func(raw_features)
                 except Exception:
