@@ -287,6 +287,9 @@ class PatternDiscovery:
                 for observed in pattern_counts.values()
             )
             
+            # DEBUG: Log chi-squared values to understand distribution
+            logger.info(f"      🔍 DEBUG - Window {window_minutes}min: chi²={chi_squared:.2f}, patterns={len(pattern_counts)}, total={len(windowed_patterns)}")
+            
             # Convert to p-value (simplified)
             p_value = 1.0 / (1.0 + chi_squared)
             
