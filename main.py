@@ -148,9 +148,9 @@ class HAIntentPredictorSystem:
         self.components['predictor'] = AdaptiveOccupancyPredictor(predictor_config)
         await self.components['predictor'].initialize()
         
-        # Drift detection for continuous adaptation
-        self.components['drift_detector'] = DriftDetector()
-        await self.components['drift_detector'].initialize()
+        # TEMPORARILY DISABLED: Drift detection for continuous adaptation
+        # self.components['drift_detector'] = DriftDetector()
+        # await self.components['drift_detector'].initialize()
     
     async def _init_ingestion(self):
         """Initialize data ingestion components"""
@@ -240,14 +240,15 @@ class HAIntentPredictorSystem:
     
     async def _run_drift_detection(self):
         """Run drift detection for model adaptation"""
-        logger.info("Starting drift detection...")
+        logger.info("Drift detection DISABLED - skipping...")
         
-        try:
-            await self.components['drift_detector'].monitor_drift(
-                predictor=self.components['predictor']
-            )
-        except Exception as e:
-            logger.error(f"Drift detection failed: {e}")
+        # TEMPORARILY DISABLED: Drift detection
+        # try:
+        #     await self.components['drift_detector'].monitor_drift(
+        #         predictor=self.components['predictor']
+        #     )
+        # except Exception as e:
+        #     logger.error(f"Drift detection failed: {e}")
     
     async def _run_ha_publisher(self):
         """Run Home Assistant entity publisher"""
@@ -282,7 +283,7 @@ class HAIntentPredictorSystem:
         shutdown_order = [
             'monitor',
             'ha_publisher', 
-            'drift_detector',
+            # 'drift_detector',  # DISABLED
             'predictor',
             'ha_stream',
             'model_store',
