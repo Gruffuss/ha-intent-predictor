@@ -155,7 +155,7 @@ class PatternDiscovery:
                 logger.info(f"   🧩 Extracting sequences from {len(chunk_events):,} events...")
                 sequences = self.extract_sequences(chunk_events, 
                                                  min_length=2, 
-                                                 max_length=15)  # Reduced from 100 to 15 for memory efficiency
+                                                 max_length=100)  # ORIGINAL: Keep full sequence length range
                 
                 if not sequences:
                     logger.info(f"   ⚠️  No sequences found in chunk, skipping")
@@ -167,9 +167,9 @@ class PatternDiscovery:
                 chunk_patterns = 0
                 chunk_windows_tested = 0
                 
-                # Test subset of time windows to balance discovery vs performance
-                time_windows = self.get_priority_time_windows()  # Focus on most important windows
-                logger.info(f"   🎯 Testing {len(time_windows)} priority time windows...")
+                # ORIGINAL ALGORITHM - Test ALL time windows as originally designed
+                time_windows = self.generate_time_windows()  # ORIGINAL: Full comprehensive time window testing
+                logger.info(f"   🎯 Testing {len(time_windows)} time windows (original algorithm)...")
                 
                 for window in time_windows:
                     # Quick memory check
@@ -204,10 +204,7 @@ class PatternDiscovery:
             
             # ORIGINAL ALGORITHM - Detect anti-patterns (what DOESN'T happen)
             logger.info(f"🔍 Discovering negative patterns for {room_id}...")
-            # Use sample of events to prevent memory explosion in negative pattern discovery
-            sample_events = event_stream[::max(1, len(event_stream)//1000)]  # Sample every Nth event
-            logger.info(f"   📊 Using {len(sample_events):,} sampled events for negative pattern analysis")
-            self.discover_negative_patterns(sample_events, room_id)
+            self.discover_negative_patterns(event_stream, room_id)  # ORIGINAL: Use full event stream
             
             final_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
             total_patterns = len(self.pattern_library.get(room_id, []))
@@ -225,22 +222,6 @@ class PatternDiscovery:
             import traceback
             logger.error(f"📍 Traceback: {traceback.format_exc()}")
     
-    def get_priority_time_windows(self) -> List[int]:
-        """Get priority time windows for focused pattern discovery"""
-        # Focus on behaviorally relevant windows instead of all 43,200 possibilities
-        priority_windows = [
-            # Micro patterns (immediate responses)
-            1, 2, 3, 5, 10, 15, 30,
-            # Activity blocks
-            45, 60, 90, 120, 180,
-            # Behavioral cycles
-            240, 360, 480, 720,  # 4h, 6h, 8h, 12h
-            1440, 2880, 4320,    # 1d, 2d, 3d
-            # Weekly patterns
-            10080,  # 1 week
-        ]
-        
-        return priority_windows
     
     def generate_time_windows(self):
         """
