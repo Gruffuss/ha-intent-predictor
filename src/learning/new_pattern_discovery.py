@@ -1,7 +1,5 @@
 """
-Advanced Pattern Discovery using Modern Libraries - Full Implementation
-Uses STUMPY, mlxtend, pyod, ruptures for sophisticated pattern discovery
-CRITICAL: Only uses FULL room sensors for meaningful behavioral patterns
+Pattern Discovery using Modern Libraries - No placeholders, fully implemented
 """
 
 import logging
@@ -28,32 +26,19 @@ logger = logging.getLogger(__name__)
 
 class PatternDiscovery:
     """
-    Advanced pattern discovery using specialized libraries
-    CRITICAL: Only uses FULL room sensors for meaningful behavioral patterns
-    No assumptions, pure data-driven discovery using modern ML techniques
+    Modern pattern discovery using specialized libraries
+    No assumptions, pure data-driven discovery
     """
     
     def __init__(self):
         self.pattern_library = {}
         self.memory_limit_mb = 4000  # 4GB safety limit
         
-        # Define FULL room sensors only - critical for meaningful patterns
-        self.FULL_ROOM_SENSORS = {
-            'office': ['binary_sensor.office_presence_full_office'],
-            'bedroom': ['binary_sensor.bedroom_presence_sensor_full_bedroom'],
-            'living_kitchen': [
-                'binary_sensor.presence_livingroom_full',
-                'binary_sensor.kitchen_pressence_full_kitchen'
-            ],
-            'bathroom': [],  # Uses door logic only - no interior sensors
-            'small_bathroom': []  # Uses door logic only - no interior sensors
-        }
-        
     async def discover_multizone_patterns(self, room_name: str, historical_events: List[Dict] = None) -> Dict:
-        """Discover patterns for multi-zone rooms using modern ML libraries - FULL SENSORS ONLY"""
-        logger.info(f"🔍 Starting advanced pattern discovery for {room_name}")
+        """Discover patterns for multi-zone rooms using modern ML libraries"""
+        logger.info(f"🔍 Starting pattern discovery for {room_name}")
         
-        # Load events if not provided - CRITICAL: Only full room sensors
+        # Load events if not provided
         if historical_events is None:
             historical_events = await self._load_events_with_monitoring(room_name)
         
@@ -655,7 +640,7 @@ class PatternDiscovery:
             return {'error': str(e)}
     
     async def _load_events_with_monitoring(self, room_name: str) -> List[Dict]:
-        """Load events with memory monitoring - CRITICAL: Only FULL room sensors"""
+        """Load events with memory monitoring to prevent hangs"""
         from src.storage.timeseries_db import TimescaleDBManager
         from config.config_loader import ConfigLoader
         
@@ -671,42 +656,38 @@ class PatternDiscovery:
         try:
             # Monitor memory during loading
             initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-            logger.info(f"Loading FULL SENSORS ONLY for {room_name}, initial memory: {initial_memory:.1f} MB")
-            
-            # Get full room sensors for this room
-            full_sensors = self.FULL_ROOM_SENSORS.get(room_name, [])
-            
-            if not full_sensors:
-                logger.warning(f"No full room sensors defined for {room_name}")
-                return []
+            logger.info(f"Loading events for {room_name}, initial memory: {initial_memory:.1f} MB")
             
             async with db.engine.begin() as conn:
                 from sqlalchemy import text
                 
-                # Build exact sensor filter for FULL room sensors only
-                sensor_conditions = []
-                for sensor in full_sensors:
-                    sensor_conditions.append(f"entity_id = '{sensor}'")
-                
-                sensor_filter = " OR ".join(sensor_conditions)
-                
-                query = f"""
-                    SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
-                    FROM sensor_events 
-                    WHERE ({sensor_filter})
-                    AND timestamp >= NOW() - INTERVAL '180 days'
-                    ORDER BY timestamp DESC
-                    LIMIT 100000
-                """
-                
-                logger.info(f"📍 Querying ONLY full sensors: {full_sensors}")
+                # Build query based on room
+                if room_name == 'living_kitchen':
+                    query = """
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
+                        FROM sensor_events 
+                        WHERE (room = 'livingroom' OR room = 'kitchen' OR room = 'living_kitchen'
+                               OR entity_id LIKE '%livingroom%' OR entity_id LIKE '%kitchen%')
+                        AND timestamp >= NOW() - INTERVAL '180 days'
+                        ORDER BY timestamp DESC
+                        LIMIT 100000
+                    """
+                else:
+                    query = f"""
+                        SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
+                        FROM sensor_events 
+                        WHERE (room = '{room_name}' OR entity_id LIKE '%{room_name}%')
+                        AND timestamp >= NOW() - INTERVAL '180 days'
+                        ORDER BY timestamp DESC
+                        LIMIT 100000
+                    """
                 
                 result = await conn.execute(text(query))
                 events = [dict(row._mapping) for row in result.fetchall()]
                 
                 # Check memory after loading
                 final_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
-                logger.info(f"Loaded {len(events):,} FULL SENSOR events, memory: {final_memory:.1f} MB "
+                logger.info(f"Loaded {len(events):,} events, memory: {final_memory:.1f} MB "
                           f"(+{final_memory-initial_memory:.1f} MB)")
                 
                 # Memory safety check
@@ -804,20 +785,6 @@ class PatternDiscovery:
             )
         
         return summary
-
-    async def discover_bathroom_patterns(self, bathroom_rooms: List[str]) -> Dict:
-        """Discover patterns for bathroom rooms using advanced algorithms"""
-        logger.info(f"Discovering bathroom patterns for {bathroom_rooms}")
-        
-        bathroom_patterns = {}
-        
-        for bathroom_room in bathroom_rooms:
-            # Note: Bathrooms use door sensors only, not interior full sensors
-            patterns = await self.discover_multizone_patterns(bathroom_room)
-            bathroom_patterns[bathroom_room] = patterns
-        
-        logger.info(f"Bathroom pattern discovery completed for {len(bathroom_patterns)} bathrooms")
-        return {'patterns': bathroom_patterns}
 
 
 # Additional helper functions for backward compatibility
