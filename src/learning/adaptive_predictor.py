@@ -655,10 +655,15 @@ class AdaptiveOccupancyPredictor:
             # Check performance degradation
             for room_id in self.rooms:
                 performance = await self.performance_monitor.get_room_performance(room_id)
-                if performance.get('accuracy', 1.0) < 0.6:  # Threshold
-                    logger.warning(f"Model drift detected for {room_id}, accuracy: {performance.get('accuracy')}")
-                    # Trigger model retraining
-                    await self.retrain_model(room_id)
+                # TEMPORARILY DISABLED: Allow models to build up accuracy before drift detection
+                # if performance.get('accuracy', 1.0) < 0.6:  # Threshold
+                #     logger.warning(f"Model drift detected for {room_id}, accuracy: {performance.get('accuracy')}")
+                #     # Trigger model retraining
+                #     await self.retrain_model(room_id)
+                
+                # Log accuracy for monitoring
+                accuracy = performance.get('accuracy', 0.0)
+                logger.info(f"Room {room_id} current accuracy: {accuracy:.3f} (drift detection disabled)")
         except Exception as e:
             logger.error(f"Error checking model drift: {e}")
     
