@@ -170,8 +170,10 @@ class AdaptiveOccupancyPredictor:
                 top_features = self.adaptive_feature_selector.get_top_features(25)
                 filtered_features = {name: features.get(name, 0) for name, _ in top_features}
                 
+                # Apply feature engineering before training
+                engineered_features = self.auto_feature_engineering(filtered_features)
                 # Convert to numeric features before training
-                numeric_features = self._convert_features_to_numeric(filtered_features)
+                numeric_features = self._convert_features_to_numeric(engineered_features)
                 if numeric_features:  # Only train if we have valid features
                     self.short_term_models[room_id].learn_one(numeric_features, outcome)
             
@@ -224,7 +226,9 @@ class AdaptiveOccupancyPredictor:
                 
                 # Combine with ML prediction if available
                 if room_id in self.short_term_models:
-                    ml_prediction = self.short_term_models[room_id].predict_proba_one(filtered_features)
+                    # Apply feature engineering before prediction
+                    engineered_features = self.auto_feature_engineering(filtered_features)
+                    ml_prediction = self.short_term_models[room_id].predict_proba_one(engineered_features)
                     
                     # Weighted combination
                     combined_prob = (bathroom_prediction['probability'] * 0.7 + 
@@ -245,7 +249,9 @@ class AdaptiveOccupancyPredictor:
             
             # 5. Regular ML prediction for other rooms
             elif room_id in self.short_term_models:
-                prediction_result = self.short_term_models[room_id].predict_proba_one(filtered_features)
+                # Apply feature engineering before prediction
+                engineered_features = self.auto_feature_engineering(filtered_features)
+                prediction_result = self.short_term_models[room_id].predict_proba_one(engineered_features)
                 prediction_result['method'] = 'adaptive_ml'
             
             else:
@@ -399,8 +405,10 @@ class AdaptiveOccupancyPredictor:
             # Update multi-horizon predictor
             features = predicted.get('features_used', {})
             if isinstance(features, dict):
+                # Apply feature engineering before training
+                engineered_features = self.auto_feature_engineering(features)
                 # Convert features to numeric format
-                numeric_features = self._convert_features_to_numeric(features)
+                numeric_features = self._convert_features_to_numeric(engineered_features)
                 if numeric_features:  # Only train if we have valid features
                     occupancy_dict = {horizon_minutes: actual}
                     self.multi_horizon_predictor.learn_one(room_id, numeric_features, occupancy_dict)
@@ -681,8 +689,10 @@ class AdaptiveOccupancyPredictor:
                     occupancy = self.determine_occupancy(event)
                     if occupancy is not None:
                         features = self.dynamic_feature_discovery.discover_features([event])
+                        # Apply feature engineering before training
+                        engineered_features = self.auto_feature_engineering(features)
                         # Ensure features are numeric and valid for ML models
-                        numeric_features = self._convert_features_to_numeric(features)
+                        numeric_features = self._convert_features_to_numeric(engineered_features)
                         if numeric_features:  # Only train if we have valid features
                             self.short_term_models[room_id].learn_one(numeric_features, occupancy)
                 
