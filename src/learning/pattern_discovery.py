@@ -534,24 +534,51 @@ class PatternDiscovery:
             pattern_list = []
             for pattern_obj in patterns:
                 try:
-                    # Extract pattern data from Pattern/NegativePattern objects
-                    pattern_str = str(pattern_obj)
-                    # Try to get actual pattern data if object has it
-                    if hasattr(pattern_obj, 'sequence'):
-                        pattern_data = ''.join([f"{evt.get('room', 'U')}{evt.get('state', 0)}" 
-                                              for evt in pattern_obj.sequence])
+                    # Extract meaningful data from Pattern/NegativePattern objects
+                    if hasattr(pattern_obj, 'sequences'):
+                        # Regular Pattern object with event sequences
+                        sequences = pattern_obj.sequences
+                        if sequences and len(sequences) > 0:
+                            # Convert first sequence to behavioral pattern string
+                            first_sequence = sequences[0]
+                            pattern_data = ""
+                            for evt in first_sequence:
+                                if isinstance(evt, dict):
+                                    # Create meaningful pattern from event data
+                                    room = evt.get('room', 'unknown')
+                                    entity = evt.get('entity_id', 'unknown')
+                                    state = evt.get('state', 'unknown')
+                                    pattern_data += f"{entity}:{state}->"
+                            
+                            # Remove trailing ->
+                            pattern_data = pattern_data.rstrip('->')
+                            
+                            if not pattern_data:
+                                pattern_data = f"sequence_{len(first_sequence)}_events"
+                        else:
+                            pattern_data = "empty_sequence"
+                        
+                        significance = getattr(pattern_obj, 'strength', 0.5)
+                        time_window = getattr(pattern_obj, 'time_window', 60)
+                        
                     elif hasattr(pattern_obj, 'pattern'):
+                        # NegativePattern object with pattern string
                         pattern_data = pattern_obj.pattern
+                        significance = getattr(pattern_obj, 'strength', 0.5)
+                        time_window = 60  # Default
+                        
                     else:
-                        # Fallback to string representation
-                        pattern_data = pattern_str.split()[-1] if ' ' in pattern_str else pattern_str
+                        # Fallback - should not happen with proper Pattern objects
+                        logger.warning(f"Unknown pattern object type: {type(pattern_obj)}")
+                        continue
                     
                     # Create pattern dict in format models expect
                     pattern_dict = {
                         'pattern': pattern_data,
-                        'frequency': getattr(pattern_obj, 'frequency', 1),
+                        'frequency': 1,  # Could be calculated from sequences length
                         'length': len(pattern_data) if isinstance(pattern_data, str) else 1,
-                        'significance': getattr(pattern_obj, 'significance', 0.5)
+                        'significance': significance,
+                        'time_window': time_window
                     }
                     pattern_list.append(pattern_dict)
                     
