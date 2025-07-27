@@ -214,6 +214,12 @@ class AdaptiveOccupancyPredictor:
                 recent_events = await self.timeseries_db.get_recent_events(minutes=30, rooms=[room_id])
                 current_features = self.dynamic_feature_discovery.discover_features(recent_events)
             
+            # 2.5. Add temporal inputs for existing feature engineering pipeline
+            current_features.update({
+                'hour': timestamp.hour,
+                'day_of_week': timestamp.weekday()
+            })
+            
             # 3. Select top features
             top_features = self.adaptive_feature_selector.get_top_features(25)
             filtered_features = {name: current_features.get(name, 0) for name, _ in top_features}
