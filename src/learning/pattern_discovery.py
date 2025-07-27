@@ -94,6 +94,10 @@ class PatternDiscovery:
         offset = 0
         
         try:
+            # Special handling for living_kitchen combined room
+            if room_name == "living_kitchen":
+                return await self._load_living_kitchen_combined_events(db, chunk_size)
+            
             while True:
                 async with db.engine.begin() as conn:
                     from sqlalchemy import text
@@ -142,6 +146,137 @@ class PatternDiscovery:
         
         logger.info(f"Loaded {len(all_events):,} total events for {room_name}")
         return all_events
+    
+    async def _load_living_kitchen_combined_events(self, db, chunk_size: int = 5000) -> List[Dict]:
+        """
+        Load living_kitchen events with combined logic: living_room OR kitchen = living_kitchen
+        If EITHER livingroom_full OR kitchen_full is ON -> living_kitchen = ON
+        """
+        logger.info("Loading living_kitchen events with combined room logic")
+        
+        # Load events from both component rooms
+        all_livingroom_events = []
+        all_kitchen_events = []
+        
+        # Load livingroom events
+        offset = 0
+        while True:
+            async with db.engine.begin() as conn:
+                from sqlalchemy import text
+                result = await conn.execute(text("""
+                    SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
+                    FROM sensor_events 
+                    WHERE entity_id = 'binary_sensor.presence_livingroom_full'
+                    ORDER BY timestamp 
+                    LIMIT :limit OFFSET :offset
+                """), {'limit': chunk_size, 'offset': offset})
+                
+                chunk_events = [dict(row._mapping) for row in result.fetchall()]
+                if not chunk_events:
+                    break
+                    
+                all_livingroom_events.extend(chunk_events)
+                offset += chunk_size
+                
+                if len(all_livingroom_events) > 200000:
+                    all_livingroom_events = all_livingroom_events[-200000:]
+                    break
+        
+        # Load kitchen events  
+        offset = 0
+        while True:
+            async with db.engine.begin() as conn:
+                from sqlalchemy import text
+                result = await conn.execute(text("""
+                    SELECT timestamp, entity_id, state, attributes, room, sensor_type, derived_features
+                    FROM sensor_events 
+                    WHERE entity_id = 'binary_sensor.kitchen_pressence_full_kitchen'
+                    ORDER BY timestamp 
+                    LIMIT :limit OFFSET :offset
+                """), {'limit': chunk_size, 'offset': offset})
+                
+                chunk_events = [dict(row._mapping) for row in result.fetchall()]
+                if not chunk_events:
+                    break
+                    
+                all_kitchen_events.extend(chunk_events)
+                offset += chunk_size
+                
+                if len(all_kitchen_events) > 200000:
+                    all_kitchen_events = all_kitchen_events[-200000:]
+                    break
+        
+        logger.info(f"Loaded {len(all_livingroom_events):,} livingroom events, {len(all_kitchen_events):,} kitchen events")
+        
+        # Combine events with OR logic to create living_kitchen combined events
+        combined_events = self._create_combined_occupancy_events(all_livingroom_events, all_kitchen_events)
+        
+        logger.info(f"Created {len(combined_events):,} combined living_kitchen events")
+        return combined_events
+    
+    def _create_combined_occupancy_events(self, livingroom_events: List[Dict], kitchen_events: List[Dict]) -> List[Dict]:
+        """
+        Create combined occupancy events: living_kitchen = livingroom_full OR kitchen_full
+        """
+        from datetime import datetime
+        import bisect
+        
+        # Merge and sort all events by timestamp  
+        all_events = []
+        
+        # Add livingroom events
+        for event in livingroom_events:
+            event_copy = event.copy()
+            event_copy['source_room'] = 'livingroom' 
+            event_copy['room'] = 'living_kitchen'
+            all_events.append(event_copy)
+        
+        # Add kitchen events
+        for event in kitchen_events:
+            event_copy = event.copy()
+            event_copy['source_room'] = 'kitchen'
+            event_copy['room'] = 'living_kitchen'
+            all_events.append(event_copy)
+        
+        # Sort by timestamp
+        all_events.sort(key=lambda x: x['timestamp'])
+        
+        if not all_events:
+            return []
+        
+        # Create combined occupancy timeline
+        combined_events = []
+        current_livingroom_state = 'off'
+        current_kitchen_state = 'off'
+        
+        for event in all_events:
+            # Update current state for the room that changed
+            if event['source_room'] == 'livingroom':
+                current_livingroom_state = event['state']
+            else:  # kitchen
+                current_kitchen_state = event['state']
+            
+            # Calculate combined state: ON if EITHER room is ON
+            combined_state = 'on' if (current_livingroom_state == 'on' or current_kitchen_state == 'on') else 'off'
+            
+            # Create combined event
+            combined_event = {
+                'timestamp': event['timestamp'],
+                'entity_id': 'living_kitchen_combined_occupancy',
+                'state': combined_state,
+                'room': 'living_kitchen',
+                'sensor_type': 'presence',
+                'attributes': {
+                    'livingroom_state': current_livingroom_state,
+                    'kitchen_state': current_kitchen_state,
+                    'combined_logic': f"livingroom:{current_livingroom_state} OR kitchen:{current_kitchen_state} = {combined_state}"
+                },
+                'derived_features': event.get('derived_features', {})
+            }
+            
+            combined_events.append(combined_event)
+        
+        return combined_events
     
     async def discover_bathroom_patterns(self, bathroom_rooms: List[str], historical_events: List[Dict] = None) -> Dict:
         """
