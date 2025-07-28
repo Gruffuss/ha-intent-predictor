@@ -69,9 +69,19 @@ class AdaptiveOccupancyPredictor:
     async def initialize(self):
         """Initialize all system components"""
         try:
-            # Initialize storage backends
-            await self.timeseries_db.initialize()
-            await self.feature_store.initialize()
+            # Initialize storage backends if they're not already initialized
+            if self.timeseries_db and hasattr(self.timeseries_db, 'initialized'):
+                if not self.timeseries_db.initialized:
+                    await self.timeseries_db.initialize()
+            
+            if self.feature_store and hasattr(self.feature_store, 'initialized'):
+                if not self.feature_store.initialized:
+                    await self.feature_store.initialize()
+            
+            # CRITICAL: Connect feature store to discovery AFTER storage is ready
+            if self.feature_store:
+                self.dynamic_feature_discovery.set_feature_store(self.feature_store)
+                logger.info("Connected feature store to dynamic feature discovery")
             
             # Initialize models for each room
             for room in self.rooms:
@@ -137,9 +147,9 @@ class AdaptiveOccupancyPredictor:
             # 1. Store raw sensor data
             await self.timeseries_db.insert_sensor_event(sensor_data)
             
-            # 2. Extract dynamic features
+            # 2. Extract dynamic features WITH room context
             recent_events = await self.timeseries_db.get_recent_events(minutes=30, rooms=[room_id])
-            features = self.dynamic_feature_discovery.discover_features(recent_events + [sensor_data])
+            features = await self.dynamic_feature_discovery.discover_features(recent_events + [sensor_data], room_id)
             
             # 3. Cache features for performance
             await self.feature_store.cache_features(
@@ -212,10 +222,10 @@ class AdaptiveOccupancyPredictor:
             if cached_prediction:
                 return cached_prediction
             
-            # 2. Get or compute current features
+            # 2. Get or compute current features WITH room context
             if current_features is None:
                 recent_events = await self.timeseries_db.get_recent_events(minutes=30, rooms=[room_id])
-                current_features = self.dynamic_feature_discovery.discover_features(recent_events)
+                current_features = await self.dynamic_feature_discovery.discover_features(recent_events, room_id)
             
             # 3. Select top features
             top_features = self.adaptive_feature_selector.get_top_features(25)
@@ -229,7 +239,8 @@ class AdaptiveOccupancyPredictor:
                 if room_id in self.short_term_models:
                     # Apply feature engineering before prediction
                     engineered_features = self.auto_feature_engineering(filtered_features)
-                    ml_prediction = self.short_term_models[room_id].predict_proba_one(engineered_features)
+                    numeric_features = self._convert_features_to_numeric(engineered_features)
+                    ml_prediction = self.short_term_models[room_id].predict_proba_one(numeric_features)
                     
                     # Weighted combination
                     combined_prob = (bathroom_prediction['probability'] * 0.7 + 
@@ -252,7 +263,8 @@ class AdaptiveOccupancyPredictor:
             elif room_id in self.short_term_models:
                 # Apply feature engineering before prediction
                 engineered_features = self.auto_feature_engineering(filtered_features)
-                prediction_result = self.short_term_models[room_id].predict_proba_one(engineered_features)
+                numeric_features = self._convert_features_to_numeric(engineered_features)
+                prediction_result = self.short_term_models[room_id].predict_proba_one(numeric_features)
                 prediction_result['method'] = 'adaptive_ml'
             
             else:
@@ -391,6 +403,51 @@ class AdaptiveOccupancyPredictor:
         except Exception as e:
             logger.error(f"Error learning bathroom patterns: {e}")
     
+    async def evaluate_cached_predictions(self, event: Dict[str, Any]):
+        """Evaluate cached predictions against actual outcomes"""
+        room_id = event.get('room')
+        timestamp = event.get('timestamp')
+        
+        # Only evaluate if this is a ground truth event (full-zone sensor)
+        actual_occupancy = self.determine_occupancy(event)
+        if actual_occupancy is None:
+            return
+        
+        # Check for cached predictions that should be evaluated
+        current_time = timestamp
+        
+        # Evaluate predictions for different horizons
+        for horizon in [5, 15, 30, 60, 120]:
+            # Look for predictions made 'horizon' minutes ago
+            prediction_time = current_time - timedelta(minutes=horizon)
+            
+            # Retrieve cached prediction
+            cache_key = f"prediction_{room_id}_{horizon}_{prediction_time.timestamp()}"
+            cached_prediction = await self.feature_store.get_cached_prediction(room_id, horizon, cache_key)
+            
+            if cached_prediction:
+                # Evaluate the prediction
+                evaluation_result = await self.evaluate_prediction(
+                    room_id,
+                    horizon,
+                    cached_prediction,
+                    actual_occupancy
+                )
+                
+                # Update model performance metrics
+                if room_id in self.short_term_models:
+                    predicted_prob = cached_prediction.get('probability', 0.5)
+                    # Simple accuracy: was the prediction correct?
+                    accuracy = 1.0 if (predicted_prob > 0.5) == actual_occupancy else 0.0
+                    
+                    # Update horizon-specific performance
+                    if hasattr(self, 'multi_horizon_predictor'):
+                        self.multi_horizon_predictor.update_horizon_performance(horizon, accuracy)
+                
+                logger.debug(f"Evaluated {horizon}min prediction for {room_id}: "
+                            f"predicted={cached_prediction.get('probability', 0.5):.2f}, "
+                            f"actual={actual_occupancy}")
+
     async def evaluate_prediction(self, 
                                 room_id: str, 
                                 horizon_minutes: int,
@@ -479,16 +536,19 @@ class AdaptiveOccupancyPredictor:
             entity_id = event.get('entity_id', '')
             timestamp = event.get('timestamp', datetime.now())
             
-            # 2. Determine current occupancy state for learning
+            # 2. Evaluate any cached predictions against this event
+            await self.evaluate_cached_predictions(event)
+            
+            # 3. Determine current occupancy state for learning
             current_occupancy = self.determine_occupancy(event)
             
-            # 3. Learn from this observation
+            # 4. Learn from this observation
             await self.learn_from_observation(room_id, event, current_occupancy)
             
-            # 4. Make predictions for all horizons
+            # 5. Make predictions for all horizons
             predictions = await self.predict_all_horizons(room_id)
             
-            # 5. Update performance metrics
+            # 6. Update performance metrics
             if current_occupancy is not None:
                 await self.performance_monitor.update_metrics(
                     room_id=room_id,
@@ -496,7 +556,7 @@ class AdaptiveOccupancyPredictor:
                     actual_occupancy=current_occupancy
                 )
             
-            # 6. Return predictions for publishing
+            # 7. Return predictions for publishing
             return predictions
             
         except Exception as e:
@@ -620,11 +680,12 @@ class AdaptiveOccupancyPredictor:
                 
                 if len(recent_events) > 10:  # Need minimum data
                     logger.info(f"Processing {len(recent_events)} new events for {room_id} pattern discovery")
-                    patterns = self.pattern_discovery.discover_patterns(recent_events, room_id)
+                    patterns = await self.pattern_discovery.discover_multizone_patterns(room_id, recent_events)
                     
-                    # Get current pattern count
-                    current_patterns = len(self.pattern_discovery.pattern_library.get(room_id, set()))
-                    logger.info(f"Pattern discovery for {room_id}: {current_patterns} total patterns")
+                    # CRITICAL: Store patterns in Redis so models can use them!
+                    await self.pattern_discovery.store_patterns_in_redis(room_id, patterns)
+                    
+                    logger.info(f"Pattern discovery and storage complete for {room_id}")
                 else:
                     logger.info(f"Insufficient new data for {room_id}: {len(recent_events)} events")
                     
@@ -694,7 +755,7 @@ class AdaptiveOccupancyPredictor:
                 for event in historical_data:
                     occupancy = self.determine_occupancy(event)
                     if occupancy is not None:
-                        features = self.dynamic_feature_discovery.discover_features([event])
+                        features = await self.dynamic_feature_discovery.discover_features([event], room_id)
                         # Apply feature engineering before training
                         engineered_features = self.auto_feature_engineering(features)
                         # Ensure features are numeric and valid for ML models
