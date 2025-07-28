@@ -147,15 +147,12 @@ class PatternDiscovery:
         return df
     
     async def _discover_recurring_patterns(self, df: pd.DataFrame) -> Dict:
-        """Use STUMPY Matrix Profile to find recurring patterns"""
+        """Use STUMPY Matrix Profile to find REAL recurring patterns"""
         try:
             # Create regular time series (5-minute intervals)
             ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
             
-            logger.info(f"📈 Time series created: {len(ts)} data points over {len(ts)//12:.1f} hours")
-            
             if len(ts) < 24:  # Need at least 2 hours of data
-                logger.warning(f"Insufficient data: {len(ts)} points < 24 required")
                 return {'error': 'Insufficient data for pattern discovery'}
             
             patterns = {}
@@ -177,55 +174,126 @@ class PatternDiscovery:
                 # Compute matrix profile
                 mp = stumpy.stump(ts.values, m=window_size)
                 
-                # Find motifs (recurring patterns)
-                motif_distances = mp[:, 0]
+                # CRITICAL FIX: Use absolute threshold, not percentile
+                # For binary data (0/1), a true pattern should have very low distance
+                # Distance < 0.1 means patterns are >90% identical
+                SIMILARITY_THRESHOLD = 0.1 * np.sqrt(window_size)  # Scale with window size
                 
-                # FIXED: Use more stringent pattern filtering
-                # Use 5th percentile AND absolute threshold for quality control
-                percentile_threshold = np.percentile(motif_distances, 5)  # Only top 5%
-                absolute_threshold = 0.5  # Distance must be < 0.5 for strong similarity
+                # Find TRUE recurring patterns
+                true_patterns = []
+                pattern_groups = defaultdict(list)
                 
-                # Use stricter threshold
-                threshold = min(percentile_threshold, absolute_threshold)
-                recurring_indices = np.where(motif_distances < threshold)[0]
-                
-                logger.info(f"  {label}: {len(motif_distances)} candidates -> {len(recurring_indices)} patterns (threshold: {threshold:.3f})")
-                
-                if len(recurring_indices) > 0:
-                    # Limit to reasonable number of patterns and get top quality ones
-                    max_patterns = min(50, len(recurring_indices))  # Cap at 50 patterns per window
-                    top_indices = recurring_indices[np.argsort(motif_distances[recurring_indices])][:max_patterns]
+                # First pass: find all low-distance matches
+                for idx in range(len(mp)):
+                    distance = mp[idx, 0]
+                    nearest_neighbor = int(mp[idx, 1])
                     
-                    logger.info(f"    Selected top {len(top_indices)} patterns (best distances: {motif_distances[top_indices[:3]].round(3).tolist()})")
-                    
-                    pattern_info = []
-                    for idx in top_indices:
-                        pattern_start = ts.index[idx]
-                        pattern_match = ts.index[int(mp[idx, 1])]
-                        
-                        pattern_info.append({
-                            'start_time': pattern_start.strftime('%Y-%m-%d %H:%M'),
-                            'match_time': pattern_match.strftime('%Y-%m-%d %H:%M'),
-                            'distance': float(motif_distances[idx]),
-                            'pattern_data': ts.iloc[idx:idx+window_size].tolist()
+                    if distance < SIMILARITY_THRESHOLD:
+                        # This is a potential pattern
+                        # Group patterns that match each other
+                        pattern_key = min(idx, nearest_neighbor)
+                        pattern_groups[pattern_key].append({
+                            'index': idx,
+                            'match_index': nearest_neighbor,
+                            'distance': distance,
+                            'timestamp': ts.index[idx]
                         })
+                
+                # Second pass: filter groups that occur multiple times
+                MIN_OCCURRENCES = 3  # Pattern must occur at least 3 times
+                
+                verified_patterns = []
+                for pattern_key, matches in pattern_groups.items():
+                    # Count unique occurrences (avoid counting A->B and B->A twice)
+                    unique_indices = set()
+                    for match in matches:
+                        unique_indices.add(match['index'])
+                        unique_indices.add(match['match_index'])
                     
+                    occurrence_count = len(unique_indices)
+                    
+                    if occurrence_count >= MIN_OCCURRENCES:
+                        # This is a real recurring pattern
+                        # Calculate pattern metadata
+                        pattern_data = ts.iloc[pattern_key:pattern_key+window_size].values
+                        
+                        # Check if pattern is meaningful (not all zeros or all ones)
+                        if 0 < pattern_data.mean() < 1:
+                            # Get all timestamps where this pattern occurs
+                            timestamps = []
+                            for idx in unique_indices:
+                                if 0 <= idx < len(ts):
+                                    timestamps.append(ts.index[idx])
+                            
+                            # Analyze timing consistency
+                            timestamps.sort()
+                            time_intervals = []
+                            for i in range(1, len(timestamps)):
+                                interval = (timestamps[i] - timestamps[i-1]).total_seconds() / 3600  # hours
+                                time_intervals.append(interval)
+                            
+                            # Check if pattern occurs at regular intervals
+                            is_periodic = False
+                            period_hours = None
+                            if time_intervals:
+                                # Check for daily pattern (24±2 hours)
+                                daily_matches = sum(1 for interval in time_intervals if 22 <= interval <= 26)
+                                if daily_matches >= len(time_intervals) * 0.7:
+                                    is_periodic = True
+                                    period_hours = 24
+                                
+                                # Check for weekly pattern (168±4 hours)
+                                weekly_matches = sum(1 for interval in time_intervals if 164 <= interval <= 172)
+                                if weekly_matches >= len(time_intervals) * 0.7:
+                                    is_periodic = True
+                                    period_hours = 168
+                            
+                            verified_patterns.append({
+                                'pattern_id': f"{label}_{len(verified_patterns)}",
+                                'occurrences': occurrence_count,
+                                'timestamps': [ts.strftime('%Y-%m-%d %H:%M') for ts in timestamps[:5]],  # First 5
+                                'mean_distance': float(np.mean([m['distance'] for m in matches])),
+                                'pattern_type': 'periodic' if is_periodic else 'irregular',
+                                'period_hours': period_hours,
+                                'pattern_data': pattern_data.tolist(),
+                                'occupancy_rate': float(pattern_data.mean())
+                            })
+                
+                # Only report if we found REAL patterns
+                if verified_patterns:
                     patterns[label] = {
                         'found': True,
-                        'pattern_count': len(top_indices),  # Use actual selected patterns
-                        'total_candidates': len(recurring_indices),  # Track candidates for debugging
-                        'top_patterns': pattern_info,
-                        'pattern_strength': float(1 - (threshold / motif_distances.max())),
-                        'quality_threshold': float(threshold)
+                        'pattern_count': len(verified_patterns),
+                        'patterns': verified_patterns[:10],  # Top 10 most significant
+                        'total_possible_positions': len(ts) - window_size + 1,
+                        'pattern_density': float(len(verified_patterns) / (len(ts) - window_size + 1))
                     }
+                    
+                    logger.info(f"Found {len(verified_patterns)} REAL patterns at {label} scale "
+                              f"(out of {len(ts) - window_size + 1} possible positions)")
                 else:
-                    logger.info(f"    No quality patterns found for {label}")
                     patterns[label] = {
                         'found': False,
                         'pattern_count': 0,
-                        'total_candidates': len(motif_distances),
-                        'quality_threshold': float(threshold)
+                        'reason': 'No recurring patterns found with sufficient similarity and frequency'
                     }
+            
+            # Add pattern summary
+            total_patterns = sum(p.get('pattern_count', 0) for p in patterns.values() if isinstance(p, dict))
+            patterns['summary'] = {
+                'total_patterns_found': total_patterns,
+                'has_daily_patterns': any(
+                    p.get('patterns', [{}])[0].get('period_hours') == 24 
+                    for p in patterns.values() 
+                    if isinstance(p, dict) and p.get('patterns')
+                ),
+                'has_weekly_patterns': any(
+                    p.get('patterns', [{}])[0].get('period_hours') == 168 
+                    for p in patterns.values() 
+                    if isinstance(p, dict) and p.get('patterns')
+                ),
+                'is_random': total_patterns == 0
+            }
             
             return patterns
             

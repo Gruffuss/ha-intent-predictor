@@ -149,30 +149,66 @@ class DynamicFeatureDiscovery:
         
         # Check each time window for pattern matches
         for window_label, pattern_info in recurring_patterns.items():
-            if pattern_info.get('found', False):
-                # Pattern strength feature
-                features[f'pattern_strength_{window_label}'] = pattern_info.get('pattern_strength', 0.0)
+            # Skip summary entry
+            if window_label == 'summary':
+                continue
                 
-                # Number of recurring patterns at this scale
+            if pattern_info.get('found', False):
+                # Pattern count feature
                 features[f'pattern_count_{window_label}'] = float(pattern_info.get('pattern_count', 0))
                 
-                # Check if current time matches any top patterns
-                if 'top_patterns' in pattern_info:
+                # Pattern density feature (how common are patterns in this window)
+                features[f'pattern_density_{window_label}'] = pattern_info.get('pattern_density', 0.0)
+                
+                # Check if current time matches any patterns
+                if 'patterns' in pattern_info:
                     match_score = 0.0
-                    for pattern in pattern_info['top_patterns']:
-                        # Simple time-based matching
-                        pattern_start = pattern.get('start_time', '')
-                        if pattern_start:
+                    periodic_match = 0.0
+                    avg_occupancy_rate = 0.0
+                    
+                    for pattern in pattern_info['patterns']:
+                        # Time-based matching using all pattern timestamps
+                        pattern_timestamps = pattern.get('timestamps', [])
+                        for timestamp_str in pattern_timestamps:
                             try:
-                                # FIX: Use strptime with correct format instead of fromisoformat
-                                pattern_time = datetime.strptime(pattern_start, '%Y-%m-%d %H:%M')
+                                pattern_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
                                 if pattern_time.hour == current_hour:
-                                    match_score += 1.0 - pattern.get('distance', 1.0)
+                                    # Weight by pattern quality (lower distance = higher weight)
+                                    distance = pattern.get('mean_distance', 1.0)
+                                    weight = max(0, 1.0 - distance)
+                                    match_score += weight
                             except Exception as e:
-                                logger.debug(f"Error parsing pattern time '{pattern_start}': {e}")
+                                logger.debug(f"Error parsing pattern time '{timestamp_str}': {e}")
                                 pass
+                        
+                        # Periodic pattern bonus
+                        if pattern.get('pattern_type') == 'periodic':
+                            periodic_match += 1.0
+                        
+                        # Track occupancy rates
+                        avg_occupancy_rate += pattern.get('occupancy_rate', 0.0)
+                    
+                    if len(pattern_info['patterns']) > 0:
+                        avg_occupancy_rate /= len(pattern_info['patterns'])
                     
                     features[f'pattern_match_{window_label}'] = match_score
+                    features[f'periodic_patterns_{window_label}'] = periodic_match
+                    features[f'pattern_occupancy_rate_{window_label}'] = avg_occupancy_rate
+            else:
+                # No patterns found for this window
+                features[f'pattern_count_{window_label}'] = 0.0
+                features[f'pattern_density_{window_label}'] = 0.0
+                features[f'pattern_match_{window_label}'] = 0.0
+                features[f'periodic_patterns_{window_label}'] = 0.0
+                features[f'pattern_occupancy_rate_{window_label}'] = 0.0
+        
+        # Add summary features if available
+        if 'summary' in recurring_patterns:
+            summary = recurring_patterns['summary']
+            features['total_patterns_found'] = float(summary.get('total_patterns_found', 0))
+            features['has_daily_patterns'] = float(summary.get('has_daily_patterns', False))
+            features['has_weekly_patterns'] = float(summary.get('has_weekly_patterns', False))
+            features['is_random_behavior'] = float(summary.get('is_random', True))
         
         return features
     
