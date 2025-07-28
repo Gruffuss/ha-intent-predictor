@@ -727,7 +727,10 @@ class PatternDiscovery:
             
             config = ConfigLoader()
             redis_config = config.get("redis")
-            feature_store = RedisFeatureStore(redis_config)
+            redis_url = f"redis://{redis_config['host']}:{redis_config['port']}/{redis_config.get('db', 0)}"
+            
+            feature_store = RedisFeatureStore(redis_url)
+            await feature_store.initialize()
             
             # Prepare pattern data for storage
             pattern_data = {
@@ -737,10 +740,12 @@ class PatternDiscovery:
                 'summary': self._generate_pattern_summary(patterns)
             }
             
-            # Store in Redis
+            # Store in Redis with proper await
             await feature_store.cache_pattern(room_id, 'discovered_patterns', pattern_data)
             
             logger.info(f"✅ Stored patterns for {room_id} in Redis")
+            
+            await feature_store.close()
             
         except Exception as e:
             logger.error(f"Error storing patterns in Redis for {room_id}: {e}")
