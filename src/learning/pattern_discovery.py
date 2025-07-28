@@ -152,7 +152,10 @@ class PatternDiscovery:
             # Create regular time series (5-minute intervals)
             ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
             
+            logger.info(f"📈 Time series created: {len(ts)} data points over {len(ts)//12:.1f} hours")
+            
             if len(ts) < 24:  # Need at least 2 hours of data
+                logger.warning(f"Insufficient data: {len(ts)} points < 24 required")
                 return {'error': 'Insufficient data for pattern discovery'}
             
             patterns = {}
@@ -177,13 +180,23 @@ class PatternDiscovery:
                 # Find motifs (recurring patterns)
                 motif_distances = mp[:, 0]
                 
-                # Patterns with low distance are recurring
-                threshold = np.percentile(motif_distances, 10)
+                # FIXED: Use more stringent pattern filtering
+                # Use 5th percentile AND absolute threshold for quality control
+                percentile_threshold = np.percentile(motif_distances, 5)  # Only top 5%
+                absolute_threshold = 0.5  # Distance must be < 0.5 for strong similarity
+                
+                # Use stricter threshold
+                threshold = min(percentile_threshold, absolute_threshold)
                 recurring_indices = np.where(motif_distances < threshold)[0]
                 
+                logger.info(f"  {label}: {len(motif_distances)} candidates -> {len(recurring_indices)} patterns (threshold: {threshold:.3f})")
+                
                 if len(recurring_indices) > 0:
-                    # Get top patterns
-                    top_indices = recurring_indices[np.argsort(motif_distances[recurring_indices])][:5]
+                    # Limit to reasonable number of patterns and get top quality ones
+                    max_patterns = min(50, len(recurring_indices))  # Cap at 50 patterns per window
+                    top_indices = recurring_indices[np.argsort(motif_distances[recurring_indices])][:max_patterns]
+                    
+                    logger.info(f"    Selected top {len(top_indices)} patterns (best distances: {motif_distances[top_indices[:3]].round(3).tolist()})")
                     
                     pattern_info = []
                     for idx in top_indices:
@@ -199,14 +212,19 @@ class PatternDiscovery:
                     
                     patterns[label] = {
                         'found': True,
-                        'pattern_count': len(recurring_indices),
+                        'pattern_count': len(top_indices),  # Use actual selected patterns
+                        'total_candidates': len(recurring_indices),  # Track candidates for debugging
                         'top_patterns': pattern_info,
-                        'pattern_strength': float(1 - (threshold / motif_distances.max()))
+                        'pattern_strength': float(1 - (threshold / motif_distances.max())),
+                        'quality_threshold': float(threshold)
                     }
                 else:
+                    logger.info(f"    No quality patterns found for {label}")
                     patterns[label] = {
                         'found': False,
-                        'pattern_count': 0
+                        'pattern_count': 0,
+                        'total_candidates': len(motif_distances),
+                        'quality_threshold': float(threshold)
                     }
             
             return patterns
@@ -320,9 +338,10 @@ class PatternDiscovery:
             
             # Create feature matrix
             for _, hour_data in hourly_occupancy.iterrows():
+                timestamp = hour_data['timestamp']
                 features.append([
-                    hour_data['timestamp'].hour,
-                    hour_data['timestamp'].dayofweek,
+                    timestamp.hour,
+                    timestamp.dayofweek,
                     hour_data['occupied']['sum'],
                     hour_data['occupied']['mean'],
                     hour_data['entity_id']['count']
