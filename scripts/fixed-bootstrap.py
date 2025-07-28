@@ -185,7 +185,12 @@ class FixedSystemBootstrap:
             # Step 3: Initialize learning components
             print("\n3. 🧠 Initializing adaptive learning components...")
             await self._initialize_learning()
-            print("   ✓ Learning components completed")
+            
+            # CRITICAL: Connect feature store AFTER it's initialized
+            self.components['predictor'].dynamic_feature_discovery.set_feature_store(
+                self.components['feature_store']
+            )
+            print("   ✓ Learning components completed and connected")
             
             # Step 4: Import historical data
             print("\n4. 📊 Importing historical data...")
@@ -516,8 +521,11 @@ class FixedSystemBootstrap:
             
             print(f"    - Training {room} models with {len(historical_events):,} events...")
             
-            # Train the room's models with actual historical data
             try:
+                # CRITICAL FIX: Connect feature store to discovery BEFORE training
+                self.components['predictor'].dynamic_feature_discovery.set_feature_store(
+                    self.components['feature_store']
+                )
                 
                 # Reset the model first
                 await self.components['predictor'].manual_training(
@@ -526,23 +534,43 @@ class FixedSystemBootstrap:
                     include_historical=False
                 )
                 
-                # Now train with actual historical data
+                # Group events into windows for better feature extraction
+                window_size = 100  # Process in windows of 100 events
                 trained_count = 0
-                for i, event in enumerate(historical_events):
-                    # Determine occupancy from event
-                    occupancy = self._determine_occupancy_from_event(event)
-                    if occupancy is not None:
-                        # Extract features from event
-                        features = await self._extract_features_from_event(event)
-                        if features:
-                            # Train the model using learn_one
-                            if room in self.components['predictor'].short_term_models:
-                                self.components['predictor'].short_term_models[room].learn_one(features, occupancy)
-                                trained_count += 1
+                
+                for i in range(0, len(historical_events), window_size // 2):  # 50% overlap
+                    window_end = min(i + window_size, len(historical_events))
+                    event_window = historical_events[i:window_end]
                     
-                    # Progress update every 10k events
-                    if i % 10000 == 0 and i > 0:
-                        print(f"      - Processed {i:,}/{len(historical_events):,} events ({trained_count:,} trained)")
+                    # Process each event in the window with context
+                    for j, event in enumerate(event_window):
+                        # Determine occupancy from event
+                        occupancy = self._determine_occupancy_from_event(event)
+                        if occupancy is not None:
+                            # Extract features WITH CONTEXT and patterns
+                            # Include previous events for context (up to 20 events)
+                            context_start = max(0, i + j - 20)
+                            context_events = historical_events[context_start:i + j + 1]
+                            
+                            # Extract features using the full pipeline
+                            features = await self._extract_features_with_patterns(
+                                event, context_events, room
+                            )
+                            
+                            if features:
+                                # Train the model using learn_one
+                                if room in self.components['predictor'].short_term_models:
+                                    # Convert to numeric features
+                                    numeric_features = self.components['predictor']._convert_features_to_numeric(features)
+                                    if numeric_features:
+                                        self.components['predictor'].short_term_models[room].learn_one(
+                                            numeric_features, occupancy
+                                        )
+                                        trained_count += 1
+                    
+                    # Progress update every window
+                    if trained_count % 1000 == 0 and trained_count > 0:
+                        print(f"      - Processed {trained_count:,} training samples")
                 
                 print(f"    ✓ {room} training completed: {trained_count:,} events processed")
                 
@@ -555,7 +583,7 @@ class FixedSystemBootstrap:
                             room_id=room, 
                             model_type="short_term", 
                             model_data=model_state,
-                            feature_schema={"temporal_features": "included"},
+                            feature_schema={"features": "pattern_enriched"},
                             training_config={"bootstrap_trained": True, "events_processed": trained_count},
                             performance_metrics={"training_events": trained_count},
                             training_data_range=(datetime(2020, 1, 1, tzinfo=timezone.utc), datetime.now(timezone.utc))
@@ -603,18 +631,32 @@ class FixedSystemBootstrap:
         
         return None
     
-    async def _extract_features_from_event(self, event):
-        """Extract features from a single event"""
+    async def _extract_features_with_patterns(self, event, context_events, room_id):
+        """Extract features including discovered patterns"""
         try:
-            # Use the dynamic feature discovery to extract features
-            features = self.components['predictor'].dynamic_feature_discovery.discover_features([event])
+            # Use the dynamic feature discovery WITH room context
+            features = await self.components['predictor'].dynamic_feature_discovery.discover_features(
+                context_events, room_id
+            )
             
-            # Convert to numeric features
-            numeric_features = self.components['predictor']._convert_features_to_numeric(features)
-            return numeric_features
+            # The features now include pattern-based features!
+            return features
+            
         except Exception as e:
-            logger.debug(f"Feature extraction failed for event: {e}")
-            return None
+            logger.error(f"Feature extraction failed: {e}")
+            # Fallback to basic features
+            return self._extract_basic_features(event)
+
+    def _extract_basic_features(self, event):
+        """Fallback basic feature extraction"""
+        timestamp = event.get('timestamp', datetime.now())
+        return {
+            'hour': timestamp.hour,
+            'day_of_week': timestamp.weekday(),
+            'minute_of_day': timestamp.hour * 60 + timestamp.minute,
+            'is_weekend': 1 if timestamp.weekday() >= 5 else 0,
+            'state': 1 if event.get('state') in ['on', 'detected', True, 1, '1'] else 0
+        }
     
     async def _initialize_person_learning(self):
         """Initialize person-specific learning"""
