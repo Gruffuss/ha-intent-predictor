@@ -147,24 +147,24 @@ class PatternDiscovery:
         return df
     
     async def _discover_recurring_patterns(self, df: pd.DataFrame) -> Dict:
-        """Use STUMPY Matrix Profile to find REAL recurring patterns"""
+        """Find ACTUAL behavioral patterns, not noise"""
         try:
             # Create regular time series (5-minute intervals)
             ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
             
-            if len(ts) < 24:  # Need at least 2 hours of data
+            if len(ts) < 24:
                 return {'error': 'Insufficient data for pattern discovery'}
             
             patterns = {}
             
             # Try different window sizes
             window_configs = [
-                (6, '30min'),    # 30 minutes
-                (12, '1hour'),   # 1 hour
-                (24, '2hours'),  # 2 hours
-                (48, '4hours'),  # 4 hours
-                (144, '12hours'), # 12 hours
-                (288, '24hours')  # 24 hours
+                (6, '30min'),
+                (12, '1hour'),
+                (24, '2hours'),
+                (48, '4hours'),
+                (144, '12hours'),
+                (288, '24hours')
             ]
             
             for window_size, label in window_configs:
@@ -174,131 +174,173 @@ class PatternDiscovery:
                 # Compute matrix profile
                 mp = stumpy.stump(ts.values, m=window_size)
                 
-                # CRITICAL FIX: Use absolute threshold, not percentile
-                # For binary data (0/1), a true pattern should have very low distance
-                # Distance < 0.1 means patterns are >90% identical
-                SIMILARITY_THRESHOLD = 0.1 * np.sqrt(window_size)  # Scale with window size
+                # CRITICAL: For occupancy data, patterns should be VERY similar
+                # Distance of 0.1 for normalized data means 99% similar
+                # For binary data, even stricter
+                STRICT_THRESHOLD = 0.05 * np.sqrt(window_size)
                 
-                # Find TRUE recurring patterns
-                true_patterns = []
-                pattern_groups = defaultdict(list)
-                
-                # First pass: find all low-distance matches
+                # Find all potential matches
+                potential_patterns = []
                 for idx in range(len(mp)):
-                    distance = mp[idx, 0]
-                    nearest_neighbor = int(mp[idx, 1])
-                    
-                    if distance < SIMILARITY_THRESHOLD:
-                        # This is a potential pattern
-                        # Group patterns that match each other
-                        pattern_key = min(idx, nearest_neighbor)
-                        pattern_groups[pattern_key].append({
-                            'index': idx,
-                            'match_index': nearest_neighbor,
-                            'distance': distance,
-                            'timestamp': ts.index[idx]
+                    if mp[idx, 0] < STRICT_THRESHOLD:
+                        potential_patterns.append({
+                            'idx': idx,
+                            'match_idx': int(mp[idx, 1]),
+                            'distance': mp[idx, 0],
+                            'pattern': ts.iloc[idx:idx+window_size].values
                         })
                 
-                # Second pass: filter groups that occur multiple times
-                MIN_OCCURRENCES = 3  # Pattern must occur at least 3 times
+                # CRITICAL FIX: Cluster similar patterns together
+                pattern_clusters = []
+                used_indices = set()
                 
-                verified_patterns = []
-                for pattern_key, matches in pattern_groups.items():
-                    # Count unique occurrences (avoid counting A->B and B->A twice)
-                    unique_indices = set()
-                    for match in matches:
-                        unique_indices.add(match['index'])
-                        unique_indices.add(match['match_index'])
+                for pattern in potential_patterns:
+                    if pattern['idx'] in used_indices:
+                        continue
                     
-                    occurrence_count = len(unique_indices)
+                    # Start new cluster
+                    cluster = {
+                        'representative_idx': pattern['idx'],
+                        'pattern_data': pattern['pattern'],
+                        'occurrences': [pattern['idx']],
+                        'distances': [pattern['distance']]
+                    }
                     
-                    if occurrence_count >= MIN_OCCURRENCES:
-                        # This is a real recurring pattern
-                        # Calculate pattern metadata
-                        pattern_data = ts.iloc[pattern_key:pattern_key+window_size].values
+                    # Find all similar patterns
+                    for other in potential_patterns:
+                        if other['idx'] in used_indices:
+                            continue
                         
-                        # Check if pattern is meaningful (not all zeros or all ones)
-                        if 0 < pattern_data.mean() < 1:
-                            # Get all timestamps where this pattern occurs
-                            timestamps = []
-                            for idx in unique_indices:
-                                if 0 <= idx < len(ts):
-                                    timestamps.append(ts.index[idx])
-                            
-                            # Analyze timing consistency
-                            timestamps.sort()
-                            time_intervals = []
-                            for i in range(1, len(timestamps)):
-                                interval = (timestamps[i] - timestamps[i-1]).total_seconds() / 3600  # hours
-                                time_intervals.append(interval)
-                            
-                            # Check if pattern occurs at regular intervals
-                            is_periodic = False
-                            period_hours = None
-                            if time_intervals:
-                                # Check for daily pattern (24±2 hours)
-                                daily_matches = sum(1 for interval in time_intervals if 22 <= interval <= 26)
-                                if daily_matches >= len(time_intervals) * 0.7:
-                                    is_periodic = True
-                                    period_hours = 24
-                                
-                                # Check for weekly pattern (168±4 hours)
-                                weekly_matches = sum(1 for interval in time_intervals if 164 <= interval <= 172)
-                                if weekly_matches >= len(time_intervals) * 0.7:
-                                    is_periodic = True
-                                    period_hours = 168
-                            
-                            verified_patterns.append({
-                                'pattern_id': f"{label}_{len(verified_patterns)}",
-                                'occurrences': occurrence_count,
-                                'timestamps': [ts.strftime('%Y-%m-%d %H:%M') for ts in timestamps[:5]],  # First 5
-                                'mean_distance': float(np.mean([m['distance'] for m in matches])),
-                                'pattern_type': 'periodic' if is_periodic else 'irregular',
-                                'period_hours': period_hours,
-                                'pattern_data': pattern_data.tolist(),
-                                'occupancy_rate': float(pattern_data.mean())
-                            })
+                        # Check if patterns are similar enough to be in same cluster
+                        pattern_similarity = np.corrcoef(
+                            pattern['pattern'], 
+                            other['pattern']
+                        )[0, 1]
+                        
+                        if pattern_similarity > 0.95:  # 95% correlation
+                            cluster['occurrences'].append(other['idx'])
+                            cluster['distances'].append(other['distance'])
+                            used_indices.add(other['idx'])
+                    
+                    # Only keep clusters with multiple occurrences
+                    if len(cluster['occurrences']) >= 3:
+                        used_indices.update(cluster['occurrences'])
+                        pattern_clusters.append(cluster)
                 
-                # Only report if we found REAL patterns
+                # Analyze each pattern cluster
+                verified_patterns = []
+                for cluster in pattern_clusters:
+                    # Get timestamps of occurrences
+                    timestamps = [ts.index[idx] for idx in cluster['occurrences']]
+                    timestamps.sort()
+                    
+                    # Analyze pattern characteristics
+                    pattern_data = cluster['pattern_data']
+                    
+                    # Skip trivial patterns
+                    occupancy_rate = pattern_data.mean()
+                    if occupancy_rate == 0 or occupancy_rate == 1:
+                        continue  # All empty or all occupied
+                    
+                    # Check for meaningful transitions
+                    transitions = np.sum(np.abs(np.diff(pattern_data)))
+                    if transitions == 0:
+                        continue  # No state changes
+                    
+                    # Analyze temporal consistency
+                    hours = [t.hour for t in timestamps]
+                    hour_counts = Counter(hours)
+                    most_common_hour = hour_counts.most_common(1)[0]
+                    hour_consistency = most_common_hour[1] / len(timestamps)
+                    
+                    # Check day of week consistency
+                    days = [t.dayofweek for t in timestamps]
+                    day_counts = Counter(days)
+                    
+                    # Determine pattern type
+                    pattern_type = 'irregular'
+                    typical_time = None
+                    typical_days = []
+                    
+                    if hour_consistency > 0.7:
+                        pattern_type = 'time_specific'
+                        typical_time = most_common_hour[0]
+                        
+                        # Check if it's weekday/weekend specific
+                        weekday_count = sum(1 for d in days if d < 5)
+                        weekend_count = len(days) - weekday_count
+                        
+                        if weekday_count > weekend_count * 3:
+                            pattern_type = 'weekday_routine'
+                            typical_days = [0, 1, 2, 3, 4]
+                        elif weekend_count > weekday_count * 2:
+                            pattern_type = 'weekend_routine'
+                            typical_days = [5, 6]
+                    
+                    # Calculate true frequency (occurrences per week)
+                    total_days = (timestamps[-1] - timestamps[0]).days
+                    occurrences_per_week = len(timestamps) / (total_days / 7) if total_days > 0 else 0
+                    
+                    # Only keep patterns that occur regularly
+                    if occurrences_per_week < 0.5:  # Less than once every 2 weeks
+                        continue
+                    
+                    verified_patterns.append({
+                        'pattern_id': f"{label}_{len(verified_patterns)}",
+                        'occurrences': len(cluster['occurrences']),
+                        'occurrences_per_week': round(occurrences_per_week, 1),
+                        'pattern_type': pattern_type,
+                        'typical_time': typical_time,
+                        'typical_days': typical_days,
+                        'hour_consistency': round(hour_consistency, 2),
+                        'occupancy_transitions': int(transitions),
+                        'sample_timestamps': [t.strftime('%Y-%m-%d %H:%M') for t in timestamps[:3]],
+                        'description': self._describe_pattern(
+                            pattern_data, pattern_type, typical_time, typical_days
+                        )
+                    })
+                
+                # Sort by frequency and importance
+                verified_patterns.sort(key=lambda x: x['occurrences_per_week'], reverse=True)
+                
+                # Log what we found
                 if verified_patterns:
+                    logger.info(f"{label}: Found {len(verified_patterns)} distinct patterns "
+                              f"(from {len(potential_patterns)} similar subsequences)")
+                    
                     patterns[label] = {
                         'found': True,
                         'pattern_count': len(verified_patterns),
-                        'patterns': verified_patterns[:10],  # Top 10 most significant
-                        'total_possible_positions': len(ts) - window_size + 1,
-                        'pattern_density': float(len(verified_patterns) / (len(ts) - window_size + 1))
+                        'patterns': verified_patterns[:5],  # Top 5 most frequent
+                        'total_subsequences_analyzed': len(mp),
+                        'similar_subsequences_found': len(potential_patterns),
+                        'distinct_patterns': len(verified_patterns)
                     }
-                    
-                    logger.info(f"Found {len(verified_patterns)} REAL patterns at {label} scale "
-                              f"(out of {len(ts) - window_size + 1} possible positions)")
                 else:
                     patterns[label] = {
                         'found': False,
                         'pattern_count': 0,
-                        'reason': 'No recurring patterns found with sufficient similarity and frequency'
+                        'reason': 'No meaningful recurring patterns found'
                     }
             
-            # Add pattern summary
-            total_patterns = sum(p.get('pattern_count', 0) for p in patterns.values() if isinstance(p, dict))
-            patterns['summary'] = {
-                'total_patterns_found': total_patterns,
-                'has_daily_patterns': any(
-                    p.get('patterns', [{}])[0].get('period_hours') == 24 
-                    for p in patterns.values() 
-                    if isinstance(p, dict) and p.get('patterns')
-                ),
-                'has_weekly_patterns': any(
-                    p.get('patterns', [{}])[0].get('period_hours') == 168 
-                    for p in patterns.values() 
-                    if isinstance(p, dict) and p.get('patterns')
-                ),
-                'is_random': total_patterns == 0
+            # Overall analysis
+            total_patterns = sum(
+                p.get('pattern_count', 0) 
+                for p in patterns.values() 
+                if isinstance(p, dict)
+            )
+            
+            patterns['analysis'] = {
+                'total_distinct_patterns': total_patterns,
+                'has_routines': total_patterns > 0,
+                'routine_strength': 'strong' if total_patterns > 10 else 'weak' if total_patterns > 0 else 'none',
+                'most_consistent_scale': self._find_most_consistent_scale(patterns)
             }
             
             return patterns
             
         except Exception as e:
-            logger.error(f"Error in recurring pattern discovery: {e}")
+            logger.error(f"Error in pattern discovery: {e}")
             return {'error': str(e)}
     
     async def _discover_sequential_patterns(self, df: pd.DataFrame) -> Dict:
@@ -897,6 +939,53 @@ class PatternDiscovery:
             )
         
         return summary
+    
+    def _describe_pattern(self, pattern_data: np.ndarray, pattern_type: str, 
+                         typical_time: int, typical_days: list) -> str:
+        """Generate human-readable pattern description"""
+        
+        # Analyze pattern shape
+        start_occupied = pattern_data[0] == 1
+        end_occupied = pattern_data[-1] == 1
+        
+        if pattern_type == 'weekday_routine':
+            time_str = f"{typical_time:02d}:00" if typical_time is not None else "consistent time"
+            if start_occupied and not end_occupied:
+                return f"Weekday departure around {time_str}"
+            elif not start_occupied and end_occupied:
+                return f"Weekday arrival around {time_str}"
+            else:
+                return f"Weekday activity pattern around {time_str}"
+        
+        elif pattern_type == 'weekend_routine':
+            time_str = f"{typical_time:02d}:00" if typical_time is not None else "consistent time"
+            return f"Weekend pattern around {time_str}"
+        
+        elif pattern_type == 'time_specific':
+            time_str = f"{typical_time:02d}:00" if typical_time is not None else "specific time"
+            return f"Daily pattern around {time_str}"
+        
+        else:
+            return "Irregular recurring pattern"
+    
+    def _find_most_consistent_scale(self, patterns: Dict) -> str:
+        """Find which time scale has the most consistent patterns"""
+        best_scale = None
+        best_consistency = 0
+        
+        for scale, data in patterns.items():
+            if isinstance(data, dict) and data.get('patterns'):
+                # Average hour consistency across patterns
+                avg_consistency = np.mean([
+                    p.get('hour_consistency', 0) 
+                    for p in data['patterns']
+                ])
+                
+                if avg_consistency > best_consistency:
+                    best_consistency = avg_consistency
+                    best_scale = scale
+        
+        return best_scale or 'none'
 
     async def discover_bathroom_patterns(self, bathroom_rooms: List[str]) -> Dict:
         """Discover patterns for bathroom rooms using advanced algorithms"""

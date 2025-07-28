@@ -163,52 +163,61 @@ class DynamicFeatureDiscovery:
                 # Check if current time matches any patterns
                 if 'patterns' in pattern_info:
                     match_score = 0.0
-                    periodic_match = 0.0
-                    avg_occupancy_rate = 0.0
+                    routine_match = 0.0
+                    weekday_patterns = 0.0
+                    weekend_patterns = 0.0
+                    high_consistency_patterns = 0.0
                     
                     for pattern in pattern_info['patterns']:
-                        # Time-based matching using all pattern timestamps
-                        pattern_timestamps = pattern.get('timestamps', [])
+                        # Time-based matching using sample timestamps
+                        pattern_timestamps = pattern.get('sample_timestamps', [])
                         for timestamp_str in pattern_timestamps:
                             try:
                                 pattern_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M')
                                 if pattern_time.hour == current_hour:
-                                    # Weight by pattern quality (lower distance = higher weight)
-                                    distance = pattern.get('mean_distance', 1.0)
-                                    weight = max(0, 1.0 - distance)
-                                    match_score += weight
+                                    # Weight by pattern frequency (occurrences per week)
+                                    frequency_weight = min(1.0, pattern.get('occurrences_per_week', 0) / 7.0)
+                                    match_score += frequency_weight
                             except Exception as e:
                                 logger.debug(f"Error parsing pattern time '{timestamp_str}': {e}")
                                 pass
                         
-                        # Periodic pattern bonus
-                        if pattern.get('pattern_type') == 'periodic':
-                            periodic_match += 1.0
+                        # Pattern type features
+                        pattern_type = pattern.get('pattern_type', 'irregular')
+                        if pattern_type in ['weekday_routine', 'time_specific']:
+                            routine_match += 1.0
+                        if pattern_type == 'weekday_routine':
+                            weekday_patterns += 1.0
+                        elif pattern_type == 'weekend_routine':
+                            weekend_patterns += 1.0
                         
-                        # Track occupancy rates
-                        avg_occupancy_rate += pattern.get('occupancy_rate', 0.0)
-                    
-                    if len(pattern_info['patterns']) > 0:
-                        avg_occupancy_rate /= len(pattern_info['patterns'])
+                        # High consistency patterns
+                        if pattern.get('hour_consistency', 0) > 0.8:
+                            high_consistency_patterns += 1.0
                     
                     features[f'pattern_match_{window_label}'] = match_score
-                    features[f'periodic_patterns_{window_label}'] = periodic_match
-                    features[f'pattern_occupancy_rate_{window_label}'] = avg_occupancy_rate
+                    features[f'routine_patterns_{window_label}'] = routine_match
+                    features[f'weekday_patterns_{window_label}'] = weekday_patterns
+                    features[f'weekend_patterns_{window_label}'] = weekend_patterns
+                    features[f'high_consistency_{window_label}'] = high_consistency_patterns
             else:
                 # No patterns found for this window
                 features[f'pattern_count_{window_label}'] = 0.0
                 features[f'pattern_density_{window_label}'] = 0.0
                 features[f'pattern_match_{window_label}'] = 0.0
-                features[f'periodic_patterns_{window_label}'] = 0.0
-                features[f'pattern_occupancy_rate_{window_label}'] = 0.0
+                features[f'routine_patterns_{window_label}'] = 0.0
+                features[f'weekday_patterns_{window_label}'] = 0.0
+                features[f'weekend_patterns_{window_label}'] = 0.0
+                features[f'high_consistency_{window_label}'] = 0.0
         
-        # Add summary features if available
-        if 'summary' in recurring_patterns:
-            summary = recurring_patterns['summary']
-            features['total_patterns_found'] = float(summary.get('total_patterns_found', 0))
-            features['has_daily_patterns'] = float(summary.get('has_daily_patterns', False))
-            features['has_weekly_patterns'] = float(summary.get('has_weekly_patterns', False))
-            features['is_random_behavior'] = float(summary.get('is_random', True))
+        # Add analysis features if available
+        if 'analysis' in recurring_patterns:
+            analysis = recurring_patterns['analysis']
+            features['total_patterns_found'] = float(analysis.get('total_distinct_patterns', 0))
+            features['has_routines'] = float(analysis.get('has_routines', False))
+            features['routine_strength_strong'] = float(analysis.get('routine_strength') == 'strong')
+            features['routine_strength_weak'] = float(analysis.get('routine_strength') == 'weak')
+            features['most_consistent_scale'] = float(analysis.get('most_consistent_scale') != 'none')
         
         return features
     
