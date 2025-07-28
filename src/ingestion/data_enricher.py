@@ -81,7 +81,9 @@ class DynamicFeatureDiscovery:
             cache_key = f"{room_id}_patterns"
             if cache_key in self.pattern_cache:
                 cache_time = self.pattern_cache_ttl.get(cache_key, 0)
-                if (datetime.now().timestamp() - cache_time) < 300:  # 5 minute cache
+                # FIX: Use UTC timezone for consistent comparison
+                from datetime import timezone
+                if (datetime.now(timezone.utc).timestamp() - cache_time) < 300:  # 5 minute cache
                     patterns = self.pattern_cache[cache_key]
                 else:
                     patterns = None
@@ -92,9 +94,14 @@ class DynamicFeatureDiscovery:
             if patterns is None:
                 pattern_data = await self.feature_store.get_cached_pattern(room_id, 'discovered_patterns')
                 if pattern_data:
-                    patterns = pattern_data.get('patterns', {})
+                    # FIX: Correct the nested structure - patterns are in pattern_data['patterns']['patterns']
+                    nested_patterns = pattern_data.get('patterns', {})
+                    patterns = nested_patterns.get('patterns', {}) if isinstance(nested_patterns, dict) else {}
+                    
                     self.pattern_cache[cache_key] = patterns
-                    self.pattern_cache_ttl[cache_key] = datetime.now().timestamp()
+                    # FIX: Use UTC timezone for consistency
+                    from datetime import timezone
+                    self.pattern_cache_ttl[cache_key] = datetime.now(timezone.utc).timestamp()
                 else:
                     logger.debug(f"No patterns found in Redis for {room_id}")
                     return {}
@@ -157,10 +164,12 @@ class DynamicFeatureDiscovery:
                         pattern_start = pattern.get('start_time', '')
                         if pattern_start:
                             try:
-                                pattern_time = datetime.fromisoformat(pattern_start)
+                                # FIX: Use strptime with correct format instead of fromisoformat
+                                pattern_time = datetime.strptime(pattern_start, '%Y-%m-%d %H:%M')
                                 if pattern_time.hour == current_hour:
                                     match_score += 1.0 - pattern.get('distance', 1.0)
-                            except:
+                            except Exception as e:
+                                logger.debug(f"Error parsing pattern time '{pattern_start}': {e}")
                                 pass
                     
                     features[f'pattern_match_{window_label}'] = match_score

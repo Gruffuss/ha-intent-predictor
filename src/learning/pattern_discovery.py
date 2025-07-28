@@ -733,6 +733,7 @@ class PatternDiscovery:
             await feature_store.initialize()
             
             # Prepare pattern data for storage
+            from datetime import timezone
             pattern_data = {
                 'room_id': room_id,
                 'discovery_time': datetime.now(timezone.utc).isoformat(),
