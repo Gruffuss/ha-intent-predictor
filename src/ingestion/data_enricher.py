@@ -25,14 +25,20 @@ class DynamicFeatureDiscovery:
         self.temporal_pattern_miner = TemporalMiner()
         # CRITICAL FIX: Use StreamProcessor for proper temporal features
         self.stream_processor = StreamProcessor()
+        # Store reference to feature store for pattern access
+        self.feature_store = None
+        self.pattern_cache = {}
+        self.pattern_cache_ttl = {}
         
-    def discover_features(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def set_feature_store(self, feature_store):
+        """Set the feature store reference for pattern access"""
+        self.feature_store = feature_store
+        logger.info("Feature store connected to DynamicFeatureDiscovery")
+        
+    async def discover_features(self, sensor_stream: List[Dict[str, Any]], room_id: str = None) -> Dict[str, Any]:
         """
         Extract different types of features from zone combinations
-        Automatically generate and test feature combinations
-        Keep only statistically significant features
-        Detect non-linear interactions between sensors
-        Find variable-length temporal patterns
+        INCLUDING discovered patterns from Redis
         """
         # CRITICAL FIX: Extract basic temporal features using StreamProcessor
         basic_temporal_features = self.extract_basic_temporal_features_from_stream(sensor_stream)
@@ -46,18 +52,263 @@ class DynamicFeatureDiscovery:
         # Mine advanced temporal patterns
         advanced_temporal_features = self.temporal_pattern_miner.mine_patterns(sensor_stream)
         
+        # CRITICAL FIX: Get discovered patterns from Redis and convert to features
+        pattern_features = {}
+        if room_id and self.feature_store:
+            pattern_features = await self.extract_pattern_based_features(room_id, basic_temporal_features)
+        
         # Combine all feature types
         all_features = {
             **basic_temporal_features,
             **zone_features,
             **interaction_features,
-            **advanced_temporal_features
+            **advanced_temporal_features,
+            **pattern_features  # Now includes the discovered patterns!
         }
         
         # Select only statistically significant features
         significant_features = self.select_significant_features(all_features)
         
         return significant_features
+    
+    async def extract_pattern_based_features(self, room_id: str, current_features: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract features based on discovered patterns from Redis
+        This is the CRITICAL missing piece!
+        """
+        try:
+            # Check cache first
+            cache_key = f"{room_id}_patterns"
+            if cache_key in self.pattern_cache:
+                cache_time = self.pattern_cache_ttl.get(cache_key, 0)
+                if (datetime.now().timestamp() - cache_time) < 300:  # 5 minute cache
+                    patterns = self.pattern_cache[cache_key]
+                else:
+                    patterns = None
+            else:
+                patterns = None
+            
+            # Fetch from Redis if not cached
+            if patterns is None:
+                pattern_data = await self.feature_store.get_cached_pattern(room_id, 'discovered_patterns')
+                if pattern_data:
+                    patterns = pattern_data.get('patterns', {})
+                    self.pattern_cache[cache_key] = patterns
+                    self.pattern_cache_ttl[cache_key] = datetime.now().timestamp()
+                else:
+                    logger.debug(f"No patterns found in Redis for {room_id}")
+                    return {}
+            
+            # Convert patterns to ML features
+            pattern_features = {}
+            
+            # 1. Recurring pattern features
+            if 'recurring' in patterns:
+                pattern_features.update(self._extract_recurring_pattern_features(patterns['recurring'], current_features))
+            
+            # 2. Seasonal pattern features
+            if 'seasonal' in patterns:
+                pattern_features.update(self._extract_seasonal_pattern_features(patterns['seasonal'], current_features))
+            
+            # 3. Duration pattern features
+            if 'durations' in patterns:
+                pattern_features.update(self._extract_duration_pattern_features(patterns['durations']))
+            
+            # 4. Sequential pattern features
+            if 'sequential' in patterns:
+                pattern_features.update(self._extract_sequential_pattern_features(patterns['sequential']))
+            
+            # 5. Anomaly features
+            if 'anomalies' in patterns:
+                pattern_features.update(self._extract_anomaly_features(patterns['anomalies'], current_features))
+            
+            # 6. Transition pattern features
+            if 'transitions' in patterns:
+                pattern_features.update(self._extract_transition_features(patterns['transitions']))
+            
+            logger.debug(f"Extracted {len(pattern_features)} pattern-based features for {room_id}")
+            return pattern_features
+            
+        except Exception as e:
+            logger.error(f"Error extracting pattern features for {room_id}: {e}")
+            return {}
+    
+    def _extract_recurring_pattern_features(self, recurring_patterns: Dict, current_features: Dict) -> Dict[str, float]:
+        """Convert recurring patterns into ML features"""
+        features = {}
+        
+        current_hour = current_features.get('hour', 0)
+        current_minute = current_features.get('minute_of_day', 0)
+        
+        # Check each time window for pattern matches
+        for window_label, pattern_info in recurring_patterns.items():
+            if pattern_info.get('found', False):
+                # Pattern strength feature
+                features[f'pattern_strength_{window_label}'] = pattern_info.get('pattern_strength', 0.0)
+                
+                # Number of recurring patterns at this scale
+                features[f'pattern_count_{window_label}'] = float(pattern_info.get('pattern_count', 0))
+                
+                # Check if current time matches any top patterns
+                if 'top_patterns' in pattern_info:
+                    match_score = 0.0
+                    for pattern in pattern_info['top_patterns']:
+                        # Simple time-based matching
+                        pattern_start = pattern.get('start_time', '')
+                        if pattern_start:
+                            try:
+                                pattern_time = datetime.fromisoformat(pattern_start)
+                                if pattern_time.hour == current_hour:
+                                    match_score += 1.0 - pattern.get('distance', 1.0)
+                            except:
+                                pass
+                    
+                    features[f'pattern_match_{window_label}'] = match_score
+        
+        return features
+    
+    def _extract_seasonal_pattern_features(self, seasonal_patterns: Dict, current_features: Dict) -> Dict[str, float]:
+        """Convert seasonal patterns into ML features"""
+        features = {}
+        
+        current_hour = current_features.get('hour', 0)
+        is_weekend = current_features.get('is_weekend', 0)
+        
+        # Daily pattern strength
+        features['has_daily_pattern'] = float(seasonal_patterns.get('has_daily_pattern', False))
+        features['daily_pattern_strength'] = seasonal_patterns.get('pattern_strength', 0.0)
+        
+        # Peak hour features
+        peak_hours = seasonal_patterns.get('peak_hours', [])
+        features['is_peak_hour'] = float(current_hour in peak_hours)
+        features['hours_to_nearest_peak'] = min([abs(current_hour - ph) for ph in peak_hours]) if peak_hours else 12.0
+        
+        # Quiet hour features
+        quiet_hours = seasonal_patterns.get('quiet_hours', [])
+        features['is_quiet_hour'] = float(current_hour in quiet_hours)
+        
+        # Weekend pattern features
+        features['weekend_different'] = float(seasonal_patterns.get('weekend_different', False))
+        if is_weekend:
+            features['expected_occupancy'] = seasonal_patterns.get('weekend_occupancy', 0.5)
+        else:
+            features['expected_occupancy'] = seasonal_patterns.get('weekday_occupancy', 0.5)
+        
+        # Hourly pattern lookup
+        hourly_pattern = seasonal_patterns.get('hourly_pattern', {})
+        features['hourly_expected_occupancy'] = hourly_pattern.get(str(current_hour), 0.5)
+        
+        # Trend feature
+        trend = seasonal_patterns.get('trend', 'stable')
+        features['trend_increasing'] = float(trend == 'increasing')
+        features['trend_decreasing'] = float(trend == 'decreasing')
+        
+        return features
+    
+    def _extract_duration_pattern_features(self, duration_patterns: Dict) -> Dict[str, float]:
+        """Convert duration patterns into ML features"""
+        features = {}
+        
+        # Basic duration statistics
+        features['mean_duration_minutes'] = duration_patterns.get('mean_duration', 60.0)
+        features['median_duration_minutes'] = duration_patterns.get('median_duration', 60.0)
+        features['duration_variability'] = duration_patterns.get('std_duration', 30.0)
+        
+        # Weekend vs weekday patterns
+        features['weekday_mean_duration'] = duration_patterns.get('weekday_mean', 60.0)
+        features['weekend_mean_duration'] = duration_patterns.get('weekend_mean', 60.0)
+        features['weekend_duration_ratio'] = (
+            features['weekend_mean_duration'] / features['weekday_mean_duration']
+            if features['weekday_mean_duration'] > 0 else 1.0
+        )
+        
+        # Duration clusters
+        if 'duration_clusters' in duration_patterns:
+            clusters = duration_patterns['duration_clusters']
+            features['num_duration_clusters'] = float(len(clusters))
+            
+            # Features for each cluster
+            for i, cluster in enumerate(clusters[:3]):  # Top 3 clusters
+                features[f'cluster_{i}_duration'] = cluster.get('mean_duration', 60.0)
+                features[f'cluster_{i}_frequency'] = cluster.get('percentage', 0.0) / 100.0
+        
+        return features
+    
+    def _extract_sequential_pattern_features(self, sequential_patterns: Dict) -> Dict[str, float]:
+        """Convert sequential patterns into ML features"""
+        features = {}
+        
+        # Basic sequential pattern stats
+        features['has_sequential_patterns'] = float(not sequential_patterns.get('no_patterns', True))
+        features['session_count'] = float(sequential_patterns.get('session_count', 0))
+        
+        # Frequent itemset features
+        frequent_sets = sequential_patterns.get('frequent_sets', [])
+        features['num_frequent_patterns'] = float(len(frequent_sets))
+        
+        # Top pattern support scores
+        for i, pattern in enumerate(frequent_sets[:5]):  # Top 5 patterns
+            features[f'top_pattern_{i}_support'] = pattern.get('support', 0.0)
+            features[f'top_pattern_{i}_frequency'] = float(pattern.get('frequency', 0))
+        
+        # Association rule features
+        rules = sequential_patterns.get('rules', [])
+        features['num_association_rules'] = float(len(rules))
+        
+        # Top rule confidence scores
+        for i, rule in enumerate(rules[:3]):  # Top 3 rules
+            features[f'rule_{i}_confidence'] = rule.get('confidence', 0.0)
+            features[f'rule_{i}_lift'] = rule.get('lift', 1.0)
+        
+        return features
+    
+    def _extract_anomaly_features(self, anomaly_patterns: Dict, current_features: Dict) -> Dict[str, float]:
+        """Convert anomaly patterns into ML features"""
+        features = {}
+        
+        # Anomaly statistics
+        features['anomaly_percentage'] = anomaly_patterns.get('anomaly_percentage', 0.0)
+        features['total_anomaly_count'] = float(anomaly_patterns.get('anomaly_count', 0))
+        
+        # Check if current time matches anomaly patterns
+        current_hour = current_features.get('hour', 0)
+        current_dow = current_features.get('day_of_week', 0)
+        
+        anomaly_match_score = 0.0
+        top_anomalies = anomaly_patterns.get('top_anomalies', [])
+        
+        for anomaly in top_anomalies:
+            if (anomaly.get('hour') == current_hour and 
+                anomaly.get('day_of_week') == current_dow):
+                anomaly_match_score += 1.0
+        
+        features['anomaly_time_match'] = anomaly_match_score / max(len(top_anomalies), 1)
+        
+        return features
+    
+    def _extract_transition_features(self, transition_patterns: Dict) -> Dict[str, float]:
+        """Convert transition patterns into ML features"""
+        features = {}
+        
+        # Basic transition stats
+        features['total_transitions'] = float(transition_patterns.get('total_transitions', 0))
+        features['mean_transition_time'] = transition_patterns.get('mean_transition_time', 300.0)
+        features['median_transition_time'] = transition_patterns.get('median_transition_time', 300.0)
+        
+        # Transition matrix probabilities
+        transition_matrix = transition_patterns.get('transition_matrix', {})
+        
+        # Extract key transition probabilities
+        if 'empty' in transition_matrix:
+            features['prob_empty_to_occupied'] = transition_matrix['empty'].get('occupied', 0.5)
+        if 'occupied' in transition_matrix:
+            features['prob_occupied_to_empty'] = transition_matrix['occupied'].get('empty', 0.5)
+        
+        # Top entity transition features
+        top_transitions = transition_patterns.get('top_entity_transitions', [])
+        features['num_common_transitions'] = float(len(top_transitions))
+        
+        return features
     
     def extract_basic_temporal_features_from_stream(self, sensor_stream: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

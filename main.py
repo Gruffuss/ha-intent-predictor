@@ -13,12 +13,15 @@ import asyncio
 import logging
 import signal
 import sys
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime, timedelta
 
 import uvicorn
 from fastapi import FastAPI
+from aiokafka import AIOKafkaConsumer
 
 from src.ingestion.ha_stream import HADataStream
 from src.learning.adaptive_predictor import AdaptiveOccupancyPredictor
@@ -231,12 +234,81 @@ class HAIntentPredictorSystem:
         logger.info("Starting prediction engine...")
         
         try:
-            # Continuous learning and prediction
-            await self.components['predictor'].run_continuous_learning()
+            # Create two tasks: learning loop AND event consumer
+            learning_task = asyncio.create_task(
+                self.components['predictor'].run_continuous_learning()
+            )
+            
+            consumer_task = asyncio.create_task(
+                self._run_kafka_consumer()
+            )
+            
+            # Run both concurrently
+            await asyncio.gather(learning_task, consumer_task)
+            
         except Exception as e:
             logger.error(f"Prediction engine failed: {e}")
             if self.running:
                 await self.shutdown()
+    
+    async def _run_kafka_consumer(self):
+        """Consume events from Kafka for real-time learning"""
+        kafka_config = self.config.get('kafka')
+        
+        consumer = AIOKafkaConsumer(
+            'sensor_events',
+            bootstrap_servers=kafka_config.get('bootstrap_servers', 'localhost:9092'),
+            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            auto_offset_reset='latest',
+            enable_auto_commit=True,
+            group_id='ha_predictor_learning'
+        )
+        
+        await consumer.start()
+        logger.info("Kafka consumer started for real-time learning")
+        
+        try:
+            async for msg in consumer:
+                if not self.running:
+                    break
+                
+                try:
+                    event = msg.value
+                    
+                    # Process event through the learning pipeline
+                    predictions = await self.components['predictor'].process_sensor_event(event)
+                    
+                    # Store predictions for later evaluation
+                    if predictions and event.get('room'):
+                        # Cache predictions for evaluation when ground truth arrives
+                        await self._cache_predictions_for_evaluation(
+                            event['room'], 
+                            event.get('timestamp'), 
+                            predictions
+                        )
+                    
+                except Exception as e:
+                    logger.error(f"Error processing event: {e}")
+                    continue
+                    
+        finally:
+            await consumer.stop()
+            logger.info("Kafka consumer stopped")
+    
+    async def _cache_predictions_for_evaluation(self, room_id: str, timestamp: datetime, predictions: Dict[int, Dict]):
+        """Cache predictions for later evaluation when ground truth arrives"""
+        try:
+            # Store predictions with TTL for later evaluation
+            for horizon, prediction in predictions.items():
+                cache_key = f"prediction_{room_id}_{horizon}_{timestamp.timestamp()}"
+                await self.components['feature_store'].cache_prediction(
+                    room_id,
+                    horizon,
+                    prediction,
+                    ttl=horizon * 60 + 300  # TTL = horizon + 5 minutes buffer
+                )
+        except Exception as e:
+            logger.error(f"Error caching predictions: {e}")
     
     async def _run_drift_detection(self):
         """Run drift detection for model adaptation"""
