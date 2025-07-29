@@ -264,13 +264,24 @@ class PatternDiscovery:
                 logger.info(f"   Sampled {sampled_windows} windows, found {constant_windows} constant windows")
                 logger.info(f"   Estimated {constant_percentage:.1f}% constant windows")
                 
-                # Skip if too many constant windows (this causes STUMPY division by zero)
-                if constant_percentage > 50:  # More than 50% constant windows
-                    logger.warning(f"🚨 SKIPPING {label}: {constant_percentage:.1f}% constant sliding windows - causes STUMPY division by zero!")
+                # For binary occupancy data, adjust constant window threshold based on occupancy rate
+                # Low occupancy (e.g., 5%) naturally has many zero windows - this is normal
+                if unique_values == 2:  # Binary data
+                    # For binary data, allow higher percentage of constant windows
+                    # especially for low occupancy rooms (offices, bedrooms)
+                    constant_threshold = 90  # Allow up to 90% constant windows for binary data
+                    if data_mean < 0.1:  # Very low occupancy room
+                        constant_threshold = 95  # Even more lenient
+                else:
+                    constant_threshold = 50  # Original threshold for non-binary data
+                
+                # Skip if too many constant windows (this causes STUMPY division by zero)  
+                if constant_percentage > constant_threshold:
+                    logger.warning(f"🚨 SKIPPING {label}: {constant_percentage:.1f}% constant sliding windows (threshold: {constant_threshold}%) - causes STUMPY division by zero!")
                     patterns[label] = {
                         'found': False,
                         'pattern_count': 0,
-                        'reason': f'{constant_percentage:.1f}% constant sliding windows (causes numpy division by zero)'
+                        'reason': f'{constant_percentage:.1f}% constant sliding windows (threshold: {constant_threshold}%)'
                     }
                     continue
                 
