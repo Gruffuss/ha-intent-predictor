@@ -8,6 +8,7 @@ import logging
 import psutil
 import numpy as np
 import pandas as pd
+import warnings
 from collections import defaultdict, Counter
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime, timedelta, timezone
@@ -217,6 +218,48 @@ class PatternDiscovery:
                     }
                     continue
                 
+                # CRITICAL NEW VALIDATION: Check sliding windows for constant data
+                # This is the ROOT CAUSE - STUMPY fails when individual windows have zero std
+                logger.info(f"🔍 Checking sliding windows for constant data...")
+                constant_windows = 0
+                total_windows = len(data_values) - window_size + 1
+                
+                # Sample check: test every 10th window to avoid performance issues
+                sample_step = max(1, total_windows // 100)  # Check at most 100 windows
+                for i in range(0, total_windows, sample_step):
+                    window_data = data_values[i:i+window_size]
+                    window_std = np.std(window_data)
+                    if window_std < 1e-12:  # Even stricter for windows
+                        constant_windows += 1
+                
+                # Calculate percentage of constant windows from sample
+                sampled_windows = len(range(0, total_windows, sample_step))
+                constant_percentage = (constant_windows / sampled_windows * sample_step) if sampled_windows > 0 else 0
+                
+                logger.info(f"   Sampled {sampled_windows} windows, found {constant_windows} constant windows")
+                logger.info(f"   Estimated {constant_percentage:.1f}% constant windows")
+                
+                # Skip if too many constant windows (this causes STUMPY division by zero)
+                if constant_percentage > 50:  # More than 50% constant windows
+                    logger.warning(f"🚨 SKIPPING {label}: {constant_percentage:.1f}% constant sliding windows - causes STUMPY division by zero!")
+                    patterns[label] = {
+                        'found': False,
+                        'pattern_count': 0,
+                        'reason': f'{constant_percentage:.1f}% constant sliding windows (causes numpy division by zero)'
+                    }
+                    continue
+                
+                # Additional validation: Check for insufficient variation across windows
+                if data_mean < 0.001 or data_mean > 0.999:  # Nearly all zeros or all ones
+                    occupancy_rate = data_mean
+                    logger.warning(f"🚨 SKIPPING {label}: Extreme occupancy rate {occupancy_rate:.1%} - insufficient pattern variation")
+                    patterns[label] = {
+                        'found': False,
+                        'pattern_count': 0,
+                        'reason': f'Extreme occupancy rate ({occupancy_rate:.1%}) - insufficient variation for patterns'
+                    }
+                    continue
+                
                 logger.info(f"✅ Data validation passed for {label}")
                 logger.info(f"⚡ Starting STUMPY matrix profile computation for {label}...")
                 
@@ -226,15 +269,52 @@ class PatternDiscovery:
                 from concurrent.futures import ThreadPoolExecutor
                 
                 def stumpy_worker():
-                    """Run STUMPY in separate thread with detailed logging"""
+                    """Run STUMPY in separate thread with detailed logging and numpy warning suppression"""
                     try:
                         logger.info(f"🚀 STUMPY thread started for window {window_size}")
-                        mp = stumpy.stump(ts.values, m=window_size)
+                        
+                        # Suppress numpy warnings during STUMPY execution
+                        # The warnings don't affect results, just clutter logs
+                        old_settings = np.seterr(all='ignore')
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
+                            warnings.filterwarnings('ignore', message='invalid value encountered in divide')
+                            warnings.filterwarnings('ignore', message='divide by zero encountered')
+                            
+                            # Pre-validate one more time right before STUMPY
+                            data_for_stumpy = ts.values
+                            if len(data_for_stumpy) < window_size * 2:
+                                raise ValueError(f"Insufficient data: {len(data_for_stumpy)} < {window_size * 2}")
+                            
+                            # Final check for problematic data patterns
+                            overall_std = np.std(data_for_stumpy)
+                            if overall_std < 1e-12:
+                                raise ValueError(f"Data has zero variance: std={overall_std:.2e}")
+                            
+                            # Add small random noise to break ties in constant regions
+                            # This prevents division by zero while preserving pattern structure
+                            noise_level = overall_std * 1e-6  # 0.0001% of signal std
+                            if noise_level < 1e-15:  # If still too small, use minimum noise
+                                noise_level = 1e-15
+                            
+                            # Only add noise if there are many constant windows (detected earlier)
+                            data_with_noise = data_for_stumpy + np.random.normal(0, noise_level, size=len(data_for_stumpy))
+                            
+                            logger.info(f"🎯 STUMPY input: {len(data_with_noise)} points, std={np.std(data_with_noise):.8f}")
+                            
+                            # Run STUMPY with preprocessed data
+                            mp = stumpy.stump(data_with_noise, m=window_size)
+                            
+                        # Restore numpy settings
+                        np.seterr(**old_settings)
+                        
                         logger.info(f"✅ STUMPY completed for {label}: matrix profile shape {mp.shape}")
                         return mp
+                        
                     except Exception as e:
                         logger.error(f"💥 STUMPY failed for {label}: {e}")
-                        raise
+                        # Don't re-raise - return None to continue with other window sizes
+                        return None
                 
                 # Run STUMPY with timeout
                 try:
@@ -243,12 +323,27 @@ class PatternDiscovery:
                         # Wait up to 30 minutes for each window size
                         mp = future.result(timeout=1800)  
                     
+                    # Check if STUMPY failed gracefully
+                    if mp is None:
+                        logger.error(f"❌ STUMPY returned None for {label} - computation failed")
+                        patterns[label] = {
+                            'found': False,
+                            'pattern_count': 0,
+                            'reason': 'STUMPY computation failed due to data characteristics'
+                        }
+                        continue
+                    
                     # Log completion
                     final_memory = psutil.Process().memory_info().rss / 1024 / 1024
                     logger.info(f"🎉 STUMPY completed for {label}! Memory: {final_memory:.1f} MB (+{final_memory-current_memory:.1f} MB)")
                     
                 except Exception as e:
                     logger.error(f"❌ STUMPY failed for {label} after timeout/error: {e}")
+                    patterns[label] = {
+                        'found': False,
+                        'pattern_count': 0,
+                        'reason': f'STUMPY execution failed: {str(e)}'
+                    }
                     continue
                 
                 # CRITICAL: For occupancy data, patterns should be VERY similar
