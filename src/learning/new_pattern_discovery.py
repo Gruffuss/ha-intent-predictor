@@ -135,7 +135,7 @@ class PatternDiscovery:
         """Use STUMPY Matrix Profile to find recurring patterns"""
         try:
             # Create regular time series (5-minute intervals)
-            ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
+            ts = df.set_index('timestamp')['occupied'].resample('5min').max().fillna(0)
             
             if len(ts) < 24:  # Need at least 2 hours of data
                 return {'error': 'Insufficient data for pattern discovery'}
@@ -295,7 +295,7 @@ class PatternDiscovery:
             features = []
             
             # Group by hour to create hourly features
-            hourly_occupancy = df.groupby(df['timestamp'].dt.floor('H')).agg({
+            hourly_occupancy = df.groupby(df['timestamp'].dt.floor('h')).agg({
                 'occupied': ['sum', 'mean'],
                 'entity_id': 'count'
             }).reset_index()
@@ -370,7 +370,7 @@ class PatternDiscovery:
         """Discover daily/weekly seasonal patterns"""
         try:
             # Create regular time series
-            ts = df.set_index('timestamp')['occupied'].resample('15T').max().fillna(0)
+            ts = df.set_index('timestamp')['occupied'].resample('15min').max().fillna(0)
             
             if len(ts) < 96 * 7:  # Need at least 1 week of data
                 return {'error': 'Insufficient data for seasonal analysis'}

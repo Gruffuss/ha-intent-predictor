@@ -46,8 +46,14 @@ class PatternDiscovery:
                 'binary_sensor.presence_livingroom_full',
                 'binary_sensor.kitchen_pressence_full_kitchen'
             ],
-            'bathroom': [],  # Uses door logic only - no interior sensors
-            'small_bathroom': []  # Uses door logic only - no interior sensors
+            'bathroom': [    # Entry/exit detection sensors
+                'binary_sensor.bathroom_door_sensor_contact',
+                'binary_sensor.bathroom_entrance'
+            ],
+            'small_bathroom': [  # Entry/exit detection sensors  
+                'binary_sensor.small_bathroom_door_sensor_contact',
+                'binary_sensor.presence_small_bathroom_entrance'
+            ]
         }
         
     async def discover_multizone_patterns(self, room_name: str, historical_events: List[Dict] = None) -> Dict:
@@ -154,7 +160,7 @@ class PatternDiscovery:
             
             # Create regular time series (5-minute intervals)
             logger.info("📊 Creating 5-minute time series from raw events...")
-            ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
+            ts = df.set_index('timestamp')['occupied'].resample('5min').max().fillna(0)
             logger.info(f"✅ Time series created: {len(ts)} data points spanning {ts.index[0]} to {ts.index[-1]}")
             
             if len(ts) < 24:
@@ -209,14 +215,33 @@ class PatternDiscovery:
                     }
                     continue
                 
-                if unique_values < 3:
-                    logger.warning(f"🚨 SKIPPING {label}: Only {unique_values} unique values - insufficient variation for pattern discovery")
+                # CRITICAL FIX: Binary sensors (0/1) are valid for STUMPY - check temporal variation instead
+                if unique_values < 2:
+                    logger.warning(f"🚨 SKIPPING {label}: Constant data - no variation at all")
                     patterns[label] = {
                         'found': False, 
                         'pattern_count': 0,
-                        'reason': f'Insufficient variation ({unique_values} unique values)'
+                        'reason': f'Constant data - no variation'
                     }
                     continue
+                
+                # For binary data, check if there's meaningful temporal variation
+                if unique_values == 2:
+                    # Calculate transition rate - how often does state change?
+                    transitions = np.sum(np.abs(np.diff(data_values)))
+                    transition_rate = transitions / len(data_values)
+                    
+                    # Binary data needs some transitions to be meaningful for pattern discovery
+                    if transition_rate < 0.01:  # Less than 1% of samples have transitions
+                        logger.warning(f"🚨 SKIPPING {label}: Binary data with minimal transitions ({transition_rate:.1%})")
+                        patterns[label] = {
+                            'found': False,
+                            'pattern_count': 0,
+                            'reason': f'Binary data with insufficient temporal variation ({transition_rate:.1%} transition rate)'
+                        }
+                        continue
+                    else:
+                        logger.info(f"✅ Binary data validation: {transition_rate:.1%} transition rate - suitable for STUMPY analysis")
                 
                 # CRITICAL NEW VALIDATION: Check sliding windows for constant data
                 # This is the ROOT CAUSE - STUMPY fails when individual windows have zero std
@@ -273,13 +298,11 @@ class PatternDiscovery:
                     try:
                         logger.info(f"🚀 STUMPY thread started for window {window_size}")
                         
-                        # Suppress numpy warnings during STUMPY execution
-                        # The warnings don't affect results, just clutter logs
-                        old_settings = np.seterr(all='ignore')
+                        # Suppress only specific STUMPY-related warnings, not all numpy warnings
                         with warnings.catch_warnings():
-                            warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
-                            warnings.filterwarnings('ignore', message='invalid value encountered in divide')
-                            warnings.filterwarnings('ignore', message='divide by zero encountered')
+                            warnings.filterwarnings('ignore', message='divide by zero encountered in scalar divide', module='stumpy')
+                            warnings.filterwarnings('ignore', message='invalid value encountered in divide', module='stumpy')
+                            warnings.filterwarnings('ignore', message='divide by zero encountered in true_divide', module='stumpy')
                             
                             # Pre-validate one more time right before STUMPY
                             data_for_stumpy = ts.values
@@ -291,22 +314,23 @@ class PatternDiscovery:
                             if overall_std < 1e-12:
                                 raise ValueError(f"Data has zero variance: std={overall_std:.2e}")
                             
-                            # Add small random noise to break ties in constant regions
-                            # This prevents division by zero while preserving pattern structure
-                            noise_level = overall_std * 1e-6  # 0.0001% of signal std
-                            if noise_level < 1e-15:  # If still too small, use minimum noise
-                                noise_level = 1e-15
-                            
-                            # Only add noise if there are many constant windows (detected earlier)
-                            data_with_noise = data_for_stumpy + np.random.normal(0, noise_level, size=len(data_for_stumpy))
+                            # CRITICAL: For binary data, use deterministic epsilon to prevent division by zero
+                            # while preserving the binary semantic meaning (0/1 occupancy states)
+                            if unique_values == 2:  # Binary data - preserve 0/1 values
+                                logger.info(f"🔧 Applying deterministic epsilon for binary data preservation")
+                                epsilon = np.finfo(float).eps * 10  # Minimal deterministic offset
+                                data_with_noise = data_for_stumpy.astype(float) + np.arange(len(data_for_stumpy)) * epsilon
+                            else:
+                                # For non-binary data, add minimal random noise to break ties
+                                noise_level = overall_std * 1e-6  # 0.0001% of signal std
+                                if noise_level < 1e-15:
+                                    noise_level = 1e-15
+                                data_with_noise = data_for_stumpy + np.random.normal(0, noise_level, size=len(data_for_stumpy))
                             
                             logger.info(f"🎯 STUMPY input: {len(data_with_noise)} points, std={np.std(data_with_noise):.8f}")
                             
                             # Run STUMPY with preprocessed data
                             mp = stumpy.stump(data_with_noise, m=window_size)
-                            
-                        # Restore numpy settings
-                        np.seterr(**old_settings)
                         
                         logger.info(f"✅ STUMPY completed for {label}: matrix profile shape {mp.shape}")
                         return mp
@@ -320,8 +344,8 @@ class PatternDiscovery:
                 try:
                     with ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(stumpy_worker)
-                        # Wait up to 30 minutes for each window size
-                        mp = future.result(timeout=1800)  
+                        # Wait up to 10 minutes for each window size (was 30min timeout causing issues)
+                        mp = future.result(timeout=600)  
                     
                     # Check if STUMPY failed gracefully
                     if mp is None:
@@ -610,7 +634,7 @@ class PatternDiscovery:
             features = []
             
             # Group by hour to create hourly features
-            hourly_occupancy = df.groupby(df['timestamp'].dt.floor('H')).agg({
+            hourly_occupancy = df.groupby(df['timestamp'].dt.floor('h')).agg({
                 'occupied': ['sum', 'mean'],
                 'entity_id': 'count'
             }).reset_index()
@@ -686,7 +710,7 @@ class PatternDiscovery:
         """Discover daily/weekly seasonal patterns"""
         try:
             # Create regular time series
-            ts = df.set_index('timestamp')['occupied'].resample('15T').max().fillna(0)
+            ts = df.set_index('timestamp')['occupied'].resample('15min').max().fillna(0)
             
             if len(ts) < 96 * 7:  # Need at least 1 week of data
                 return {'error': 'Insufficient data for seasonal analysis'}

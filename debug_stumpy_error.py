@@ -60,7 +60,7 @@ async def debug_stumpy_error():
         # Do the EXACT resampling that's in pattern discovery
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', category=FutureWarning)
-            ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
+            ts = df.set_index('timestamp')['occupied'].resample('5min').max().fillna(0)
         
         print(f"\nAfter 5-minute resampling:")
         print(f"  - Data points: {len(ts)}")
