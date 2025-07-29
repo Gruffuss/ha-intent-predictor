@@ -149,10 +149,15 @@ class PatternDiscovery:
     async def _discover_recurring_patterns(self, df: pd.DataFrame) -> Dict:
         """Find ACTUAL behavioral patterns, not noise"""
         try:
+            logger.info("🔄 Starting recurring pattern discovery...")
+            
             # Create regular time series (5-minute intervals)
+            logger.info("📊 Creating 5-minute time series from raw events...")
             ts = df.set_index('timestamp')['occupied'].resample('5T').max().fillna(0)
+            logger.info(f"✅ Time series created: {len(ts)} data points spanning {ts.index[0]} to {ts.index[-1]}")
             
             if len(ts) < 24:
+                logger.warning(f"❌ Insufficient data: {len(ts)} points < 24 minimum")
                 return {'error': 'Insufficient data for pattern discovery'}
             
             patterns = {}
@@ -167,12 +172,84 @@ class PatternDiscovery:
                 (288, '24hours')
             ]
             
-            for window_size, label in window_configs:
+            logger.info(f"🔍 Testing {len(window_configs)} window configurations...")
+            
+            for i, (window_size, label) in enumerate(window_configs):
+                logger.info(f"🎯 Processing window {i+1}/{len(window_configs)}: {label} ({window_size} intervals)")
+                
                 if len(ts) < window_size * 2:
+                    logger.info(f"⏭️  Skipping {label}: need {window_size * 2} points, have {len(ts)}")
                     continue
                 
-                # Compute matrix profile
-                mp = stumpy.stump(ts.values, m=window_size)
+                # Log memory before STUMPY
+                current_memory = psutil.Process().memory_info().rss / 1024 / 1024
+                logger.info(f"🧠 Memory before STUMPY: {current_memory:.1f} MB")
+                
+                # CRITICAL: Validate data before STUMPY to prevent the numpy warnings!
+                data_values = ts.values
+                data_shape = data_values.shape
+                data_std = np.std(data_values)
+                data_mean = np.mean(data_values)
+                unique_values = len(np.unique(data_values))
+                
+                logger.info(f"📏 STUMPY input validation:")
+                logger.info(f"   Shape: {data_shape}, Window: {window_size}")
+                logger.info(f"   Mean: {data_mean:.3f}, Std: {data_std:.3f}")
+                logger.info(f"   Unique values: {unique_values}")
+                logger.info(f"   Value range: {data_values.min():.3f} to {data_values.max():.3f}")
+                
+                # Check for problematic data that causes numpy warnings
+                if data_std < 1e-10:
+                    logger.warning(f"🚨 SKIPPING {label}: Zero standard deviation (constant data) - this causes STUMPY to hang!")
+                    patterns[label] = {
+                        'found': False,
+                        'pattern_count': 0,
+                        'reason': f'Constant data (std={data_std:.2e}) - all values are {data_mean:.1f}'
+                    }
+                    continue
+                
+                if unique_values < 3:
+                    logger.warning(f"🚨 SKIPPING {label}: Only {unique_values} unique values - insufficient variation for pattern discovery")
+                    patterns[label] = {
+                        'found': False, 
+                        'pattern_count': 0,
+                        'reason': f'Insufficient variation ({unique_values} unique values)'
+                    }
+                    continue
+                
+                logger.info(f"✅ Data validation passed for {label}")
+                logger.info(f"⚡ Starting STUMPY matrix profile computation for {label}...")
+                
+                # This is where it hangs - add timeout handling
+                import signal
+                import asyncio
+                from concurrent.futures import ThreadPoolExecutor
+                
+                def stumpy_worker():
+                    """Run STUMPY in separate thread with detailed logging"""
+                    try:
+                        logger.info(f"🚀 STUMPY thread started for window {window_size}")
+                        mp = stumpy.stump(ts.values, m=window_size)
+                        logger.info(f"✅ STUMPY completed for {label}: matrix profile shape {mp.shape}")
+                        return mp
+                    except Exception as e:
+                        logger.error(f"💥 STUMPY failed for {label}: {e}")
+                        raise
+                
+                # Run STUMPY with timeout
+                try:
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(stumpy_worker)
+                        # Wait up to 30 minutes for each window size
+                        mp = future.result(timeout=1800)  
+                    
+                    # Log completion
+                    final_memory = psutil.Process().memory_info().rss / 1024 / 1024
+                    logger.info(f"🎉 STUMPY completed for {label}! Memory: {final_memory:.1f} MB (+{final_memory-current_memory:.1f} MB)")
+                    
+                except Exception as e:
+                    logger.error(f"❌ STUMPY failed for {label} after timeout/error: {e}")
+                    continue
                 
                 # CRITICAL: For occupancy data, patterns should be VERY similar
                 # Distance of 0.1 for normalized data means 99% similar
