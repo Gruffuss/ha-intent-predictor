@@ -11,7 +11,7 @@ import sys
 import os
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.learning.smart_data_preprocessor import SmartDataPreprocessor, OccupancyPattern
 from src.learning.preprocessing_monitor import global_preprocessing_monitor
