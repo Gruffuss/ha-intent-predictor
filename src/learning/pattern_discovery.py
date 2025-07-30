@@ -23,6 +23,8 @@ from pyod.models.lof import LOF
 from statsmodels.tsa.seasonal import seasonal_decompose
 import ruptures as rpt
 from river import anomaly, preprocessing, compose
+from .smart_data_preprocessor import SmartDataPreprocessor
+from .preprocessing_monitor import global_preprocessing_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ class PatternDiscovery:
     def __init__(self):
         self.pattern_library = {}
         self.memory_limit_mb = 4000  # 4GB safety limit
+        self.smart_preprocessor = SmartDataPreprocessor()
         
         # Define FULL room sensors only - critical for meaningful patterns
         self.FULL_ROOM_SENSORS = {
@@ -79,13 +82,17 @@ class PatternDiscovery:
         # Store in Redis for model access
         await self.store_patterns_in_redis(room_name, patterns)
         
+        # Log preprocessing session summary for this room
+        global_preprocessing_monitor.log_session_summary()
+        
         logger.info(f"✅ Pattern discovery complete for {room_name}")
         
         return {
             'room': room_name,
             'patterns': patterns,
             'total_events': len(historical_events),
-            'summary': self._generate_pattern_summary(patterns)
+            'summary': self._generate_pattern_summary(patterns),
+            'preprocessing_metrics': global_preprocessing_monitor.get_metrics_summary()
         }
     
     async def _comprehensive_discovery(self, events: List[Dict], room_name: str) -> Dict:
@@ -192,107 +199,49 @@ class PatternDiscovery:
                 current_memory = psutil.Process().memory_info().rss / 1024 / 1024
                 logger.info(f"🧠 Memory before STUMPY: {current_memory:.1f} MB")
                 
-                # CRITICAL: Validate data before STUMPY to prevent the numpy warnings!
+                # SMART PREPROCESSING: Use adaptive preprocessing based on data characteristics
                 data_values = ts.values
                 data_shape = data_values.shape
-                data_std = np.std(data_values)
-                data_mean = np.mean(data_values)
-                unique_values = len(np.unique(data_values))
                 
                 logger.info(f"📏 STUMPY input validation:")
                 logger.info(f"   Shape: {data_shape}, Window: {window_size}")
-                logger.info(f"   Mean: {data_mean:.3f}, Std: {data_std:.3f}")
-                logger.info(f"   Unique values: {unique_values}")
                 logger.info(f"   Value range: {data_values.min():.3f} to {data_values.max():.3f}")
                 
-                # Check for problematic data that causes numpy warnings
-                if data_std < 1e-10:
-                    logger.warning(f"🚨 SKIPPING {label}: Zero standard deviation (constant data) - this causes STUMPY to hang!")
-                    patterns[label] = {
-                        'found': False,
-                        'pattern_count': 0,
-                        'reason': f'Constant data (std={data_std:.2e}) - all values are {data_mean:.1f}'
-                    }
-                    continue
-                
-                # CRITICAL FIX: Binary sensors (0/1) are valid for STUMPY - check temporal variation instead
-                if unique_values < 2:
-                    logger.warning(f"🚨 SKIPPING {label}: Constant data - no variation at all")
-                    patterns[label] = {
-                        'found': False, 
-                        'pattern_count': 0,
-                        'reason': f'Constant data - no variation'
-                    }
-                    continue
-                
-                # For binary data, check if there's meaningful temporal variation
-                if unique_values == 2:
-                    # Calculate transition rate - how often does state change?
-                    transitions = np.sum(np.abs(np.diff(data_values)))
-                    transition_rate = transitions / len(data_values)
+                # Apply smart preprocessing with monitoring
+                try:
+                    processed_data, preprocessing_info, monitoring_data = await global_preprocessing_monitor.monitor_preprocessing(
+                        room_name, data_values, window_size, self.smart_preprocessor
+                    )
                     
-                    # Binary data needs some transitions to be meaningful for pattern discovery
-                    if transition_rate < 0.01:  # Less than 1% of samples have transitions
-                        logger.warning(f"🚨 SKIPPING {label}: Binary data with minimal transitions ({transition_rate:.1%})")
+                    logger.info(f"🔧 Smart preprocessing complete:")
+                    logger.info(f"   Method: {preprocessing_info['method']}")
+                    logger.info(f"   Pattern type: {preprocessing_info['pattern_type']}")
+                    logger.info(f"   Ready for STUMPY: {preprocessing_info['ready_for_stumpy']}")
+                    
+                    # Check if preprocessing made data STUMPY-ready
+                    if not preprocessing_info['ready_for_stumpy']:
+                        logger.warning(f"⚠️ SKIPPING {label}: Data still not suitable for STUMPY after preprocessing")
                         patterns[label] = {
                             'found': False,
                             'pattern_count': 0,
-                            'reason': f'Binary data with insufficient temporal variation ({transition_rate:.1%} transition rate)'
+                            'reason': f"Smart preprocessing insufficient: {preprocessing_info['reason']}",
+                            'preprocessing_info': preprocessing_info
                         }
                         continue
-                    else:
-                        logger.info(f"✅ Binary data validation: {transition_rate:.1%} transition rate - suitable for STUMPY analysis")
-                
-                # VALIDATION: Check sliding windows for constant data (updated based on debug findings)
-                # Debug analysis showed STUMPY can handle 65% constant windows successfully
-                logger.info(f"🔍 Validating sliding windows for STUMPY compatibility...")
-                constant_windows = 0
-                total_windows = len(data_values) - window_size + 1
-                
-                # Sample check: test every 100th window for performance
-                sample_step = max(1, total_windows // 50)  # Sample more efficiently
-                for i in range(0, total_windows, sample_step):
-                    window_data = data_values[i:i+window_size]
-                    window_std = np.std(window_data)
-                    if window_std < 1e-15:  # Use consistent threshold
-                        constant_windows += 1
-                
-                # Calculate percentage of constant windows from sample  
-                sampled_windows = len(range(0, total_windows, sample_step))
-                constant_percentage = (constant_windows / sampled_windows * 100) if sampled_windows > 0 else 0
-                
-                logger.info(f"   Sampled {sampled_windows} windows, found {constant_windows} constant windows")
-                logger.info(f"   Estimated {constant_percentage:.1f}% constant windows")
-                
-                # UPDATED THRESHOLDS: Based on debug showing STUMPY handles constant windows better than expected
-                if unique_values == 2:  # Binary occupancy data
-                    if data_mean < 0.05:  # Very low occupancy (< 5%) - offices, bedrooms
-                        constant_threshold = 95  # Debug showed 65% worked, so 95% is very safe
-                    elif data_mean < 0.15:  # Low occupancy (< 15%)  
-                        constant_threshold = 85
-                    else:
-                        constant_threshold = 70  # Higher occupancy rooms
-                else:
-                    constant_threshold = 60  # Non-binary data
-                
-                # Only skip if we have EXTREME constant window percentages
-                if constant_percentage > constant_threshold:
-                    logger.warning(f"⚠️ High constant windows for {label}: {constant_percentage:.1f}% (threshold: {constant_threshold}%)")
-                    logger.info(f"🔧 Will rely on STUMPY preprocessing to handle this case")
-                    # Don't skip anymore - let STUMPY preprocessing handle it
-                
-                # Additional validation: Check for insufficient variation across windows
-                if data_mean < 0.001 or data_mean > 0.999:  # Nearly all zeros or all ones
-                    occupancy_rate = data_mean
-                    logger.warning(f"🚨 SKIPPING {label}: Extreme occupancy rate {occupancy_rate:.1%} - insufficient pattern variation")
+                    
+                    # Use processed data for STUMPY
+                    data_for_stumpy = processed_data
+                    
+                except Exception as e:
+                    logger.error(f"❌ Smart preprocessing failed for {label}: {e}")
                     patterns[label] = {
                         'found': False,
                         'pattern_count': 0,
-                        'reason': f'Extreme occupancy rate ({occupancy_rate:.1%}) - insufficient variation for patterns'
+                        'reason': f'Smart preprocessing error: {str(e)}'
                     }
                     continue
                 
-                logger.info(f"✅ Data validation passed for {label}")
+                logger.info(f"✅ Smart preprocessing validation passed for {label}")
                 logger.info(f"⚡ Starting STUMPY matrix profile computation for {label}...")
                 
                 # This is where it hangs - add timeout handling
@@ -301,84 +250,20 @@ class PatternDiscovery:
                 from concurrent.futures import ThreadPoolExecutor
                 
                 def stumpy_worker():
-                    """Run STUMPY with improved preprocessing and proper error handling"""
+                    """Run STUMPY with smart preprocessing and proper error handling"""
                     try:
                         logger.info(f"🚀 STUMPY thread started for window {window_size}")
                         
-                        # IMPROVED PREPROCESSING: Based on debug analysis showing STUMPY can handle some zero stddev
-                        def preprocess_for_stumpy(data_values: np.ndarray) -> np.ndarray:
-                            """Smart preprocessing that adds minimal noise only when necessary"""
-                            
-                            # Quick validation: sample windows to check constant percentage
-                            total_windows = len(data_values) - window_size + 1
-                            sample_step = max(1, total_windows // 100)  # Sample 1% for performance
-                            constant_windows = 0
-                            sampled_windows = 0
-                            
-                            for i in range(0, total_windows, sample_step):
-                                if np.std(data_values[i:i+window_size]) < 1e-15:
-                                    constant_windows += 1
-                                sampled_windows += 1
-                            
-                            constant_percentage = (constant_windows / sampled_windows * 100) if sampled_windows > 0 else 0
-                            occupancy_rate = np.mean(data_values)
-                            
-                            # Adaptive threshold: STUMPY can handle more constant windows than we thought
-                            # Debug showed 65% constant windows worked fine
-                            if occupancy_rate < 0.1:  # Very low occupancy rooms (offices, bedrooms)
-                                threshold = 85  # Allow up to 85% constant windows
-                            elif occupancy_rate < 0.2:  # Low occupancy
-                                threshold = 75  
-                            else:
-                                threshold = 60  # Higher occupancy rooms
-                            
-                            logger.info(f"🔍 Preprocessing validation: {constant_percentage:.1f}% constant windows (threshold: {threshold}%)")
-                            
-                            if constant_percentage <= threshold:
-                                logger.info(f"✅ Data ready for STUMPY without preprocessing")
-                                return data_values
-                            
-                            # Apply minimal preprocessing only when needed
-                            logger.info(f"🔧 Applying minimal preprocessing for {constant_percentage:.1f}% constant windows")
-                            processed_data = data_values.astype(float)
-                            
-                            # Method: Add microscopic deterministic variation to preserve binary semantics
-                            epsilon = np.finfo(float).eps * 1000  # Larger epsilon for better STUMPY compatibility
-                            
-                            # Add index-based noise (deterministic, preserves order)
-                            index_noise = np.arange(len(processed_data)) * epsilon
-                            processed_data += index_noise
-                            
-                            # Additionally, add tiny linear trends to long constant sequences
-                            diff = np.diff(np.concatenate(([0], processed_data, [0])))
-                            starts = np.where(diff == 1)[0]
-                            ends = np.where(diff == -1)[0]
-                            
-                            sequences_processed = 0
-                            for start, end in zip(starts, ends):
-                                if end - start > 20:  # Only long sequences (>100 minutes)
-                                    sequence_length = end - start
-                                    linear_trend = np.linspace(0, epsilon * sequence_length, sequence_length)
-                                    processed_data[start:end] += linear_trend
-                                    sequences_processed += 1
-                            
-                            logger.info(f"✅ Preprocessing complete: {sequences_processed} long sequences enhanced")
-                            return processed_data
-                        
-                        # Pre-validate one more time right before STUMPY
-                        data_for_stumpy = ts.values
+                        # Use smart-preprocessed data
                         if len(data_for_stumpy) < window_size * 2:
                             raise ValueError(f"Insufficient data: {len(data_for_stumpy)} < {window_size * 2}")
                         
-                        # Apply smart preprocessing
-                        data_with_noise = preprocess_for_stumpy(data_for_stumpy)
-                        
                         # Final validation
-                        overall_std = np.std(data_with_noise)
+                        overall_std = np.std(data_for_stumpy)
                         if overall_std < 1e-15:
-                            raise ValueError(f"Data has zero variance after preprocessing: std={overall_std:.2e}")
+                            raise ValueError(f"Data has zero variance after smart preprocessing: std={overall_std:.2e}")
                         
-                        logger.info(f"🎯 STUMPY input: {len(data_with_noise)} points, std={overall_std:.8f}")
+                        logger.info(f"🎯 STUMPY input: {len(data_for_stumpy)} points, std={overall_std:.8f}")
                         
                         # Run STUMPY with controlled warnings (don't suppress all warnings)
                         with warnings.catch_warnings():
@@ -386,8 +271,8 @@ class PatternDiscovery:
                             warnings.filterwarnings('ignore', message='divide by zero encountered.*', category=RuntimeWarning)
                             warnings.filterwarnings('ignore', message='invalid value encountered in divide', category=RuntimeWarning)
                             
-                            # Run STUMPY with preprocessed data
-                            mp = stumpy.stump(data_with_noise, m=window_size)
+                            # Run STUMPY with smart-preprocessed data
+                            mp = stumpy.stump(data_for_stumpy, m=window_size)
                         
                         logger.info(f"✅ STUMPY completed for {label}: matrix profile shape {mp.shape}")
                         return mp
@@ -567,13 +452,17 @@ class PatternDiscovery:
                         'patterns': verified_patterns[:5],  # Top 5 most frequent
                         'total_subsequences_analyzed': len(mp),
                         'similar_subsequences_found': len(potential_patterns),
-                        'distinct_patterns': len(verified_patterns)
+                        'distinct_patterns': len(verified_patterns),
+                        'preprocessing_info': preprocessing_info,  # Include preprocessing details
+                        'monitoring_data': monitoring_data  # Include monitoring metrics
                     }
                 else:
                     patterns[label] = {
                         'found': False,
                         'pattern_count': 0,
-                        'reason': 'No meaningful recurring patterns found'
+                        'reason': 'No meaningful recurring patterns found',
+                        'preprocessing_info': preprocessing_info,  # Include preprocessing details
+                        'monitoring_data': monitoring_data  # Include monitoring metrics
                     }
             
             # Overall analysis
