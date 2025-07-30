@@ -186,7 +186,7 @@ async def get_real_sensor_data(room: str = 'office', hours: int = 48) -> Tuple[n
         start_time = end_time - timedelta(hours=hours)
         
         query = text("""
-            SELECT timestamp, value, entity_id
+            SELECT timestamp, state, entity_id
             FROM sensor_events 
             WHERE room = :room
             AND entity_id LIKE '%presence%'
@@ -212,11 +212,12 @@ async def get_real_sensor_data(room: str = 'office', hours: int = 48) -> Tuple[n
         
         # Convert to time series
         timestamps = [row[0] for row in rows]
-        values = [float(row[1]) for row in rows]
+        states = [row[1] for row in rows]  # 'on'/'off' values
         entity_ids = [row[2] for row in rows]
         
-        # Convert to numpy array
-        data_array = np.array(values)
+        # Convert on/off to 1/0 binary values
+        binary_values = [1.0 if state == 'on' else 0.0 for state in states]
+        data_array = np.array(binary_values)
         
         metadata = {
             'room': room,
