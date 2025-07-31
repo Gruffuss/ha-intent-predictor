@@ -94,7 +94,7 @@ class Sprint1FullRoomAnalyzer:
                 from sqlalchemy import text
                 result = await conn.execute(
                     text(query), 
-                    (sensor_id, start_time, end_time)
+                    [sensor_id, start_time, end_time]
                 )
                 rows = result.fetchall()
             
