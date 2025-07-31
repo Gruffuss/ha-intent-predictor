@@ -84,9 +84,9 @@ class HMMAccuracyValidator:
         logger.info("🎯 Starting bedroom accuracy validation (84% sparse data)")
         
         try:
-            # Fetch bedroom occupancy data (last 30 days for manageable test)
+            # Fetch bedroom occupancy data (last 60 days for more training data)
             end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=60)
             
             bedroom_events = await self._fetch_room_events('bedroom', start_date, end_date)
             logger.info(f"📊 Bedroom data: {len(bedroom_events)} events")
@@ -113,7 +113,7 @@ class HMMAccuracyValidator:
             sequences = await self._events_to_sequences(clean_events, 'bedroom')
             logger.info(f"🔄 Created {len(sequences)} training sequences")
             
-            if len(sequences) < 5:
+            if len(sequences) < 10:
                 logger.warning("⚠️ Insufficient sequences for HMM training")
                 return {'accuracy': 0.0, 'reason': 'insufficient_sequences'}
             
@@ -359,18 +359,23 @@ class HMMAccuracyValidator:
     async def _validate_hmm_accuracy(self, hmm_predictor: HMMPredictor, sequences: List[OccupancySequence]) -> float:
         """Validate HMM accuracy using time-series cross validation"""
         try:
-            if len(sequences) < 3:
+            if len(sequences) < 10:
+                logger.warning("⚠️ Insufficient sequences for cross-validation")
                 return 0.0
             
             correct_predictions = 0
             total_predictions = 0
             
             # Use time-series cross validation
-            for i in range(2, len(sequences)):  # Start from 3rd sequence
+            for i in range(max(5, len(sequences)//4), len(sequences)):  # Start from 1/4 point or minimum 5
                 try:
                     # Use previous sequences as training
                     train_sequences = sequences[:i]
                     test_sequence = sequences[i]
+                    
+                    # Skip if insufficient training data
+                    if len(train_sequences) < 5:
+                        continue
                     
                     # Create fresh HMM for this fold
                     fold_hmm = HMMPredictor(hmm_predictor.room_id, hmm_predictor.config)
