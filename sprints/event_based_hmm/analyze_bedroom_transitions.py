@@ -72,6 +72,50 @@ async def analyze_bedroom_transitions():
             print(f"\n⚠️  Target sensor not found, using: {target_sensor}")
         else:
             print(f"\n✅ Found target sensor: {target_sensor}")
+            
+        # If the primary sensor has no transitions, try alternatives
+        async with db.engine.begin() as conn:
+            result = await conn.execute(text("""
+                SELECT COUNT(*) as transition_count
+                FROM sensor_events 
+                WHERE entity_id = :sensor_id
+                  AND state != previous_state
+                  AND state IS NOT NULL
+                  AND previous_state IS NOT NULL
+            """), {"sensor_id": target_sensor})
+            
+            transition_count = result.fetchone()[0]
+            
+            if transition_count == 0:
+                print(f"⚠️  {target_sensor} has no state transitions, trying alternatives...")
+                
+                # Try other bedroom sensors in order of preference
+                alternatives = [
+                    "binary_sensor.bedroom_vladimir_bed_side",
+                    "binary_sensor.bedroom_floor", 
+                    "binary_sensor.bedroom_presence_sensor_anca_bed_side"
+                ]
+                
+                for alt_sensor in alternatives:
+                    if alt_sensor in sensor_ids:
+                        result = await conn.execute(text("""
+                            SELECT COUNT(*) as transition_count
+                            FROM sensor_events 
+                            WHERE entity_id = :sensor_id
+                              AND state != previous_state
+                              AND state IS NOT NULL
+                              AND previous_state IS NOT NULL
+                        """), {"sensor_id": alt_sensor})
+                        
+                        alt_transitions = result.fetchone()[0]
+                        if alt_transitions > 0:
+                            target_sensor = alt_sensor
+                            print(f"✅ Using {target_sensor} with {alt_transitions:,} transitions")
+                            break
+                
+                if transition_count == 0:
+                    print("❌ No bedroom sensors with state transitions found!")
+                    return
         
         # Step 3: Analyze state transitions
         print(f"\n2. ANALYZING STATE TRANSITIONS FOR: {target_sensor}")
