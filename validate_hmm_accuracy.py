@@ -245,15 +245,22 @@ class HMMAccuracyValidator:
             query = """
             SELECT timestamp, entity_id, state, room, sensor_type, attributes
             FROM sensor_events 
-            WHERE room = %s 
-                AND timestamp BETWEEN %s AND %s
+            WHERE room = :room 
+                AND timestamp BETWEEN :start_date AND :end_date
                 AND state IN ('on', 'off', 'occupied', 'unoccupied', '1', '0')
             ORDER BY timestamp
             """
             
             async with self.db_manager.session_factory() as session:
                 from sqlalchemy import text
-                result = await session.execute(text(query), [room, start_date, end_date])
+                result = await session.execute(
+                    text(query), 
+                    {
+                        'room': room, 
+                        'start_date': start_date, 
+                        'end_date': end_date
+                    }
+                )
                 
                 events = []
                 for row in result.fetchall():
