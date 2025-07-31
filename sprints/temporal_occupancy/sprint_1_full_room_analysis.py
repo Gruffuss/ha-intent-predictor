@@ -352,14 +352,26 @@ class Sprint1FullRoomAnalyzer:
         """Analyze simultaneous occupancy patterns across rooms"""
         print(f"\n🔄 Analyzing multi-room occupancy overlaps...")
         
+        # Check if we have any timeline data
+        valid_timelines = [timeline for timeline in timeline_data.values() if timeline]
+        if not valid_timelines:
+            print(f"   ⚠️ No timeline data available for overlap analysis")
+            return
+            
         # Find time periods with multiple room occupancy
         overlap_periods = []
         
         # Sample every minute to check occupancy state
-        start_time = min([min([event['timestamp'] for event in timeline]) 
-                         for timeline in timeline_data.values() if timeline])
-        end_time = max([max([event['timestamp'] for event in timeline]) 
-                       for timeline in timeline_data.values() if timeline])
+        all_timestamps = []
+        for timeline in valid_timelines:
+            all_timestamps.extend([event['timestamp'] for event in timeline])
+            
+        if not all_timestamps:
+            print(f"   ⚠️ No timestamps found in timeline data")
+            return
+            
+        start_time = min(all_timestamps)
+        end_time = max(all_timestamps)
         
         current_time = start_time
         overlap_count = 0
