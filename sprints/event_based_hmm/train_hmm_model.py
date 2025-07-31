@@ -31,18 +31,25 @@ async def load_transition_sequences() -> Tuple[List[List[str]], List[List[str]]]
     async with db.engine.begin() as conn:
         from sqlalchemy import text
         
-        # Get ALL state transitions in chronological order
+        # Get ALL states in chronological order and compute transitions
         result = await conn.execute(text("""
             SELECT 
                 state,
                 timestamp
             FROM sensor_events 
             WHERE entity_id = 'binary_sensor.bedroom_presence_sensor_full_bedroom'
-                AND state != previous_state 
-                AND previous_state IS NOT NULL
             ORDER BY timestamp ASC
         """))
-        transitions = result.fetchall()
+        all_events = result.fetchall()
+        
+        # Compute transitions manually
+        transitions = []
+        if len(all_events) > 1:
+            prev_state = all_events[0][0]
+            for current_state, timestamp in all_events[1:]:
+                if current_state != prev_state:
+                    transitions.append((current_state, timestamp))
+                    prev_state = current_state
     
     await db.close()
     
