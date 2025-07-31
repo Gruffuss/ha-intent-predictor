@@ -73,15 +73,23 @@ async def analyze_bedroom_transitions():
         else:
             print(f"\n✅ Found target sensor: {target_sensor}")
             
-        # If the primary sensor has no transitions, try alternatives
+        # If the primary sensor has no transitions, try alternatives using computed transitions
         async with db.engine.begin() as conn:
+            # Check transitions using computed method
             result = await conn.execute(text("""
+                WITH state_changes AS (
+                    SELECT 
+                        state,
+                        LAG(state) OVER (ORDER BY timestamp) as computed_previous_state
+                    FROM sensor_events 
+                    WHERE entity_id = :sensor_id
+                      AND state IS NOT NULL
+                    ORDER BY timestamp
+                )
                 SELECT COUNT(*) as transition_count
-                FROM sensor_events 
-                WHERE entity_id = :sensor_id
-                  AND state != previous_state
-                  AND state IS NOT NULL
-                  AND previous_state IS NOT NULL
+                FROM state_changes
+                WHERE computed_previous_state IS NOT NULL
+                  AND state != computed_previous_state
             """), {"sensor_id": target_sensor})
             
             transition_count = result.fetchone()[0]
@@ -99,12 +107,19 @@ async def analyze_bedroom_transitions():
                 for alt_sensor in alternatives:
                     if alt_sensor in sensor_ids:
                         result = await conn.execute(text("""
+                            WITH state_changes AS (
+                                SELECT 
+                                    state,
+                                    LAG(state) OVER (ORDER BY timestamp) as computed_previous_state
+                                FROM sensor_events 
+                                WHERE entity_id = :sensor_id
+                                  AND state IS NOT NULL
+                                ORDER BY timestamp
+                            )
                             SELECT COUNT(*) as transition_count
-                            FROM sensor_events 
-                            WHERE entity_id = :sensor_id
-                              AND state != previous_state
-                              AND state IS NOT NULL
-                              AND previous_state IS NOT NULL
+                            FROM state_changes
+                            WHERE computed_previous_state IS NOT NULL
+                              AND state != computed_previous_state
                         """), {"sensor_id": alt_sensor})
                         
                         alt_transitions = result.fetchone()[0]
@@ -117,19 +132,27 @@ async def analyze_bedroom_transitions():
                     print("❌ No bedroom sensors with state transitions found!")
                     return
         
-        # Step 3: Analyze state transitions
+        # Step 3: Analyze state transitions (computed manually due to data quality issues)
         print(f"\n2. ANALYZING STATE TRANSITIONS FOR: {target_sensor}")
         print("-" * 60)
         
         async with db.engine.begin() as conn:
-            # Get all state changes (where state != previous_state)
+            # Compute transitions manually using window functions since previous_state may not be reliable
             result = await conn.execute(text("""
-                SELECT timestamp, state, previous_state
-                FROM sensor_events 
-                WHERE entity_id = :sensor_id
-                  AND state != previous_state
-                  AND state IS NOT NULL
-                  AND previous_state IS NOT NULL
+                WITH state_changes AS (
+                    SELECT 
+                        timestamp,
+                        state,
+                        LAG(state) OVER (ORDER BY timestamp) as computed_previous_state
+                    FROM sensor_events 
+                    WHERE entity_id = :sensor_id
+                      AND state IS NOT NULL
+                    ORDER BY timestamp
+                )
+                SELECT timestamp, state, computed_previous_state
+                FROM state_changes
+                WHERE computed_previous_state IS NOT NULL
+                  AND state != computed_previous_state
                 ORDER BY timestamp ASC
             """), {"sensor_id": target_sensor})
             
@@ -152,9 +175,9 @@ async def analyze_bedroom_transitions():
             
             valid_transitions = []
             
-            for i, (timestamp, current_state, previous_state) in enumerate(transitions):
+            for i, (timestamp, current_state, computed_previous_state) in enumerate(transitions):
                 # Normalize states to consistent format
-                prev_normalized = str(previous_state).lower() in ['true', 'on', '1', 'occupied']
+                prev_normalized = str(computed_previous_state).lower() in ['true', 'on', '1', 'occupied']
                 curr_normalized = str(current_state).lower() in ['true', 'on', '1', 'occupied']
                 
                 # Create transition key
