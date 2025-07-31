@@ -80,22 +80,19 @@ class Sprint1FullRoomAnalyzer:
         for room_name, sensor_id in self.full_room_sensors.items():
             print(f"   Loading {room_name}: {sensor_id}")
             
-            query = """
+            query = f"""
             SELECT timestamp, state, entity_id
             FROM sensor_events 
-            WHERE entity_id = $1 
-              AND timestamp >= $2 
-              AND timestamp <= $3
+            WHERE entity_id = '{sensor_id}' 
+              AND timestamp >= '{start_time}' 
+              AND timestamp <= '{end_time}'
               AND state IN ('on', 'off')
             ORDER BY timestamp ASC
             """
             
             async with self.db.engine.begin() as conn:
                 from sqlalchemy import text
-                result = await conn.execute(
-                    text(query), 
-                    [sensor_id, start_time, end_time]
-                )
+                result = await conn.execute(text(query))
                 rows = result.fetchall()
             
             if rows:
